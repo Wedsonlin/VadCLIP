@@ -15,8 +15,14 @@ dependencies = [
     "Pillow",
     "tqdm",
     "setuptools",
+    "packaging>=23.0",
     "ftfy",
     "regex",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
 ]
 
 # PyTorch CUDA 12.8 wheels (Blackwell sm_120 + Ampere sm_86). Other deps stay on PyPI.
