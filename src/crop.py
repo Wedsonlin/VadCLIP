@@ -11,16 +11,36 @@ from tqdm import tqdm
 def read_video_to_ndarray(
     video_path: str,
     stride: int = 1,
+    shift: int = 0,
     convert_to_rgb: bool = False,
 ) -> np.ndarray:
     """
-    Read an .mp4 (or any OpenCV-supported) video into a NumPy array.
+    Read a video file into a NumPy array of frames.
+
+    This function uses OpenCV (`cv2.VideoCapture`) to decode frames and keeps
+    every `stride`-th frame, optionally offset by `shift`.
+
+    Args:
+        video_path: Path to a video file (e.g., .mp4) readable by OpenCV.
+        stride: Keep one frame every `stride` frames. Must be a positive integer.
+        shift: Frame index offset used in the sampling rule
+            `(grabbed + shift) % stride == 0`. Must be non-negative.
+        convert_to_rgb: If True, convert decoded frames from OpenCV's default
+            BGR color order to RGB.
 
     Returns:
-        frames: uint8 ndarray with shape [T, H, W, 3].
+        A `uint8` ndarray of shape `[T, H, W, 3]`, where `T` is the number of
+        sampled frames. If the video contains no decodable frames (or sampling
+        yields none), returns an empty array with shape `(0, 0, 0, 3)`.
+
+    Raises:
+        ValueError: If `stride <= 0` or `shift < 0`.
+        FileNotFoundError: If the video cannot be opened by OpenCV.
     """
     if stride <= 0:
         raise ValueError(f"stride must be positive, got {stride}")
+    if shift < 0:
+        raise ValueError(f"shift must be non-negative, got {shift}")
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -28,13 +48,13 @@ def read_video_to_ndarray(
 
     try:
         frames: list[np.ndarray] = []
-        grabbed = 0
+        grabbed = 1
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
 
-            if grabbed % stride == 0:
+            if (grabbed + shift) % stride == 0:
                 if convert_to_rgb:
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frames.append(frame)
@@ -43,6 +63,9 @@ def read_video_to_ndarray(
 
         if not frames:
             return np.empty((0, 0, 0, 3), dtype=np.uint8)
+
+        if grabbed % stride != 0:
+            frames = frames[:-1] # drop the last frame if it's not a multiple of stride
 
         return np.stack(frames, axis=0).astype(np.uint8, copy=False)
     finally:
@@ -54,6 +77,7 @@ def iter_videos_as_ndarray(
     recursive: bool = True,
     pattern: str = "*.mp4",
     stride: int = 1,
+    shift: int = 0,
     convert_to_rgb: bool = False,
 ):
     """
@@ -73,6 +97,7 @@ def iter_videos_as_ndarray(
         frames = read_video_to_ndarray(
             str(p),
             stride=stride,
+            shift=shift,
             convert_to_rgb=convert_to_rgb,
         )
         yield str(p), frames
@@ -139,24 +164,6 @@ def extract_clip_features(
     return video_features.detach().cpu().numpy()
 
 
-def average_features_by_clip(features: np.ndarray, clip_len: int = 16) -> np.ndarray:
-    """
-    Average frame-level CLIP features over complete clips and drop the tail.
-
-    For N input frames, the output length is floor(N / clip_len), matching the
-    released VadCLIP features that align one feature with every 16 video frames.
-    """
-    if clip_len <= 0:
-        raise ValueError(f"clip_len must be positive, got {clip_len}")
-
-    clip_count = features.shape[0] // clip_len
-    if clip_count == 0:
-        return np.empty((0, features.shape[1]), dtype=features.dtype)
-
-    features = features[: clip_count * clip_len]
-    return features.reshape(clip_count, clip_len, features.shape[1]).mean(axis=1)
-
-
 def save_video_clip_features(
     video_path: str,
     frames: np.ndarray,
@@ -164,7 +171,6 @@ def save_video_clip_features(
     model,
     preprocess,
     device: str,
-    clip_len: int = 16,
     batch_size: int = 64,
 ):
     feature_save_dir = Path(feature_save_dir)
@@ -174,37 +180,40 @@ def save_video_clip_features(
     for clip_id in range(5):
         for flip in (False, True):
             cropped_frames = resize_and_crop(frames, type=clip_id, flip=flip)
-            frame_features = extract_clip_features(
+            video_features = extract_clip_features(
                 cropped_frames,
                 model,
                 preprocess,
                 device,
                 batch_size=batch_size,
             )
-            video_features = average_features_by_clip(frame_features, clip_len=clip_len)
 
             save_name = f"{video_name}__{clip_id}__{int(flip)}.npy"
             video_features = video_features.astype(np.float16, copy=False)
             np.save(feature_save_dir / save_name, video_features)
 
-
-if __name__ == '__main__':
-    video_dir = "H:\\Datasets\\XD-Violence\\train\\videos"
-    feature_save_dir = "H:\\Datasets\\XD-Violence\\train\\my-clipfeatures"
-    pattern = "*.mp4"
-
+def convert_video_to_clip_features(
+    video_dir: str,
+    feature_save_dir: str | Path,
+    pattern: str = "*.mp4",
+    model_name: str = "ViT-B/16",
+    stride: int = 1,
+    shift: int = 0,
+    batch_size: int = 64,
+):
     video_dir_path = Path(video_dir)
     paths = video_dir_path.glob(pattern)
     video_paths = sorted(p for p in paths if p.is_file())
-    generator = iter_videos_as_ndarray(
-        video_dir, 
-        pattern=pattern,
-        stride=1, 
-        convert_to_rgb=True
-    )
 
+    generator = iter_videos_as_ndarray(
+        video_dir=video_dir,
+        stride=stride,
+        shift=shift,
+        convert_to_rgb=True,
+    )
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model, preprocess = clip.load("ViT-B/16", device)
+    model, preprocess = clip.load(model_name, device)
+
     for video_path, frames in tqdm(
         generator,
         total=len(video_paths),
@@ -218,27 +227,20 @@ if __name__ == '__main__':
             model,
             preprocess,
             device,
-            clip_len=16,
+            batch_size=batch_size,
         )
 
-    # video_name = "A.Beautiful.Mind.2001__#00-04-20_00-05-35_label_A"
-    # video_path = "H:\\Datasets\\XD-Violence\\train\\videos\\"
+if __name__ == '__main__':
+    video_dir = "H:\\Datasets\\XD-Violence\\train\\videos"
+    feature_save_dir = "H:\\Datasets\\XD-Violence\\train\\my-clipfeatures"
+    pattern = "*.mp4"
 
-    # frames = read_video_to_ndarray(
-    #     video_path=video_path+video_name+".mp4",
-    #     stride=1,
-    #     convert_to_rgb=True,
-    # )
-    # cropped_frames = resize_and_crop(frames, type=0, flip=False)
-    # video_features = extract_clip_features(cropped_frames, model, preprocess, device)
-    # video_features = video_features.astype(np.float16)
-    # video_features = average_features_by_clip(video_features)
-
-    # np_path = "H:\\Datasets\\XD-Violence\\train\\clipfeatures\\" + video_name + "__0.npy"
-    # arr = np.load(np_path)
-
-    # print(video_features.shape)
-    # print(arr.shape)
-
-    # print(video_features[:3])
-    # print(arr[:3])
+    convert_video_to_clip_features(
+        video_dir=video_dir,
+        feature_save_dir=feature_save_dir,
+        pattern=pattern,
+        model_name="ViT-B/16",
+        stride=16,
+        shift=8,
+        batch_size=64,
+    )

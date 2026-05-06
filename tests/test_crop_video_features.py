@@ -44,7 +44,8 @@ def test_save_video_clip_features_matches_snapshots(tmp_path: Path) -> None:
 
     frames = crop.read_video_to_ndarray(
         str(FIXTURE_VIDEO),
-        stride=1,
+        stride=16,
+        shift=8,
         convert_to_rgb=True,
     )
     assert frames.ndim == 4 and frames.shape[-1] == 3
@@ -61,7 +62,6 @@ def test_save_video_clip_features_matches_snapshots(tmp_path: Path) -> None:
         model,
         preprocess,
         device,
-        clip_len=16,
     )
 
     snapshot_files = sorted(SNAPSHOT_DIR.glob(f"{VIDEO_STEM}__*.npy"))
