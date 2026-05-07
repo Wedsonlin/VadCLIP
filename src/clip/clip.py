@@ -27,6 +27,8 @@ if packaging.version.parse(torch.__version__) < packaging.version.parse("1.7.1")
 __all__ = ["available_models", "load", "tokenize"]
 _tokenizer = _Tokenizer()
 
+# base_url = "https://openaipublic.azureedge.net/clip/models/"
+# url = base_url + sha256 hash of the model + model name + .pt
 _MODELS = {
     "RN50": "https://openaipublic.azureedge.net/clip/models/afeb0e10f9e5a86da6080e35cf09123aca3b358a0c3e3b6c78a7b63bc04b6762/RN50.pt",
     "RN101": "https://openaipublic.azureedge.net/clip/models/8fa8567bab74a42d41c5915025a8e4538c3bdbe8804a470a72f30b0d94fab599/RN101.pt",
@@ -77,12 +79,27 @@ def _convert_image_to_rgb(image):
 
 
 def _transform(n_px):
+    """
+    Parameters:
+    n_px: int
+        The size (in pixels) of the smaller edge of the image.
+    
+    Returns:
+        A torchvision transform that converts a PIL image into a tensor that the returned model can take as its input
+
+        The transform does the following:
+        1. Resize the image to the given size
+        2. Crop the image to the given size
+        3. Convert the image to RGB
+        4. Convert the image to a tensor
+        5. Normalize the image
+    """
     return Compose([
         Resize(n_px, interpolation=BICUBIC),
-        CenterCrop(n_px),
-        _convert_image_to_rgb,
-        ToTensor(),
-        Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
+        CenterCrop(n_px), # center crop (n_px, n_px)
+        _convert_image_to_rgb, # convert PIL image to RGB mode
+        ToTensor(), # (H, W, 3) in range [0, 255] -> (3, H, W) in range [0.0, 1.0]
+        Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)), # mean and std calculated on theImageNet
     ])
 
 
@@ -142,10 +159,17 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
         return model, _transform(model.visual.input_resolution)
 
     # patch the device names
-    device_holder = torch.jit.trace(lambda: torch.ones([]).to(torch.device(device)), example_inputs=[])
-    device_node = [n for n in device_holder.graph.findAllNodes("prim::Constant") if "Device" in repr(n)][-1]
+    device_holder = torch.jit.trace(lambda: torch.ones([]).to(torch.device(device)), example_inputs=[]) # reference torchscript module
+    device_node = [n for n in device_holder.graph.findAllNodes("prim::Constant") if "Device" in repr(n)][-1] # find device node
 
     def patch_device(module):
+        """Rewrite CUDA device constants in a JIT module's TorchScript graphs.
+
+        Walks each available graph (``module.graph`` and ``forward1.graph`` when
+        present) and copies attributes from ``device_node`` onto every
+        ``prim::Constant`` whose value looks like a CUDA device string, so the
+        serialized model matches the requested ``device``.
+        """
         try:
             graphs = [module.graph] if hasattr(module, "graph") else []
         except RuntimeError:
@@ -160,13 +184,13 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
                     node.copyAttributes(device_node)
 
     model.apply(patch_device)
-    patch_device(model.encode_image)
-    patch_device(model.encode_text)
+    patch_device(model.encode_image) # make sure it patches encode_image submodule
+    patch_device(model.encode_text) # make sure it patches encode_text submodule
 
     # patch dtype to float32 on CPU
     if str(device) == "cpu":
         float_holder = torch.jit.trace(lambda: torch.ones([]).float(), example_inputs=[])
-        float_input = list(float_holder.graph.findNode("aten::to").inputs())[1]
+        float_input = list(float_holder.graph.findNode("aten::to").inputs())[1] # inputs()[0] is tensor node, inputs()[1] is dtype/device node
         float_node = float_input.node()
 
         def patch_float(module):

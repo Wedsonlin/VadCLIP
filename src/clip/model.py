@@ -169,6 +169,9 @@ class QuickGELU(nn.Module):
 
 
 class ResidualAttentionBlock(nn.Module):
+    """
+    A typical pre-norm transformer block
+    """
     def __init__(self, d_model: int, n_head: int, attn_mask: torch.Tensor = None):
         super().__init__()
 
@@ -344,15 +347,29 @@ class CLIP(nn.Module):
         x = self.token_embedding(token)
         return x
 
-    def encode_text(self, text, token):
-        #x = self.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]
-        x = text.type(self.dtype) + self.positional_embedding.type(self.dtype)
-        x = x.permute(1, 0, 2)  # NLD -> LND
+    def encode_text(self, embedding_vector, token):
+        # x = self.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]
+        """
+            learnable positional embedding
+                        ⬇
+            permutation (B, S, D) -> (S, B, D) # old version multi-head Attention input shape requirement
+                        ⬇
+            multi-layer transformer blocks
+                        ⬇
+            permutation (S, B, D) -> (B, S, D)
+                        ⬇
+            layer norm
+                        ⬇
+            select feature of EOT token to represent the feature of sequence (B, S, D) -> (B, D)
+                        ⬇
+            linear projection to image-language joint embedding space (B, D) -> (B, D_embed)
+        """
+        x = embedding_vector.type(self.dtype) + self.positional_embedding.type(self.dtype) # (B, S, D)
+        x = x.permute(1, 0, 2)  # (S, B, D)
         x = self.transformer(x)
-        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = x.permute(1, 0, 2)  # (B, S, D)
         x = self.ln_final(x).type(self.dtype)
 
-        # x.shape = [batch_size, n_ctx, transformer.width]
         # take features from the eot embedding (eot_token is the highest number in each sequence)
         x = x[torch.arange(x.shape[0]), token.argmax(dim=-1)] @ self.text_projection
 
@@ -400,6 +417,9 @@ def convert_weights(model: nn.Module):
 
 
 def build_model(state_dict: dict):
+    """
+    initialize model according to state_dict and load state_dict
+    """
     vit = "visual.proj" in state_dict
 
     if vit:

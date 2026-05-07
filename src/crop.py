@@ -6,7 +6,7 @@ import torch
 from clip import clip
 from PIL import Image
 from tqdm import tqdm
-
+from typing import Callable
 
 def read_video_to_ndarray(
     video_path: str,
@@ -131,8 +131,8 @@ def resize_and_crop(frames: np.ndarray, type: int, flip: bool = False):
 
 def extract_clip_features(
     frames: np.ndarray,
-    model,
-    preprocess,
+    model: torch.nn.Module,
+    preprocess: Callable[[Image], torch.Tensor],
     device: str,
     batch_size: int = 64,
 ) -> np.ndarray:
