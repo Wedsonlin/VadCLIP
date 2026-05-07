@@ -3,10 +3,14 @@ import numpy as np
 from pathlib import Path
 
 import torch
-from clip import clip
 from PIL import Image
 from tqdm import tqdm
 from typing import Callable
+
+try:
+    from src.clip import clip
+except ModuleNotFoundError:
+    from clip import clip
 
 def read_video_to_ndarray(
     video_path: str,
@@ -24,7 +28,7 @@ def read_video_to_ndarray(
         video_path: Path to a video file (e.g., .mp4) readable by OpenCV.
         stride: Keep one frame every `stride` frames. Must be a positive integer.
         shift: Frame index offset used in the sampling rule
-            `(grabbed + shift) % stride == 0`. Must be non-negative.
+            `(grabbed - shift) % stride == 0`. Must be non-negative.
         convert_to_rgb: If True, convert decoded frames from OpenCV's default
             BGR color order to RGB.
 
@@ -48,23 +52,22 @@ def read_video_to_ndarray(
 
     try:
         frames: list[np.ndarray] = []
-        grabbed = 1
+        grabbed = 0
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
-
-            if (grabbed + shift) % stride == 0:
+            
+            grabbed += 1
+            if (grabbed - shift) % stride == 0:
                 if convert_to_rgb:
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frames.append(frame)
 
-            grabbed += 1
-
         if not frames:
             return np.empty((0, 0, 0, 3), dtype=np.uint8)
 
-        if grabbed % stride != 0:
+        if stride > 1 and (grabbed % stride >= shift):
             frames = frames[:-1] # drop the last frame if it's not a multiple of stride
 
         return np.stack(frames, axis=0).astype(np.uint8, copy=False)
@@ -231,8 +234,8 @@ def convert_video_to_clip_features(
         )
 
 if __name__ == '__main__':
-    video_dir = "H:\\Datasets\\XD-Violence\\train\\videos"
-    feature_save_dir = "H:\\Datasets\\XD-Violence\\train\\my-clipfeatures"
+    video_dir = "H:\\Datasets\\XD-Violence\\test\\videos"
+    feature_save_dir = "H:\\Datasets\\XD-Violence\\test\\my-clipfeatures"
     pattern = "*.mp4"
 
     convert_video_to_clip_features(
