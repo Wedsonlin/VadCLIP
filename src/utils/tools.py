@@ -1,3 +1,5 @@
+import math
+
 import torch
 import numpy as np
 
@@ -57,10 +59,29 @@ def random_extract(feat, t_max):
    r = np.random.randint(feat.shape[0] - t_max)
    return feat[r : r+t_max, :]
 
-def uniform_extract(feat, t_max, avg: bool = True):
+def uniform_extract(feat: np.ndarray, t_max: int, avg: bool = True) -> np.ndarray:
+    """
+    Resample a frame-level feature matrix to a fixed temporal length `t_max`.
+
+    If ``avg`` is True (default), each output row is the mean of the frames in a
+    corresponding sub-interval of ``[0, T)`` (uniform partition boundaries; adjacent
+    boundaries may coincide after rounding, in which case one frame is copied).
+
+    If ``avg`` is False, ``t_max`` frame indices are sampled uniformly in index space
+    (including endpoints) and rows are taken without averaging.
+
+    Args:
+        feat: Array of shape ``[T, D]`` (``T`` frames, ``D`` per-frame dim).
+        t_max: Target number of rows (output time length).
+        avg: Use interval averaging if True; use discrete index sampling if False.
+
+    Returns:
+        Array of shape ``[t_max, D]``, dtype ``float32``.
+    """
     new_feat = np.zeros((t_max, feat.shape[1])).astype(np.float32)
-    r = np.linspace(0, len(feat), t_max+1, dtype=np.int32)
-    if avg == True:
+    if avg:
+        r = np.linspace(0, feat.shape[0], t_max + 1, dtype=np.int32)
+        r = np.clip(r, 0, feat.shape[0] - 1)
         for i in range(t_max):
             if r[i]!=r[i+1]:
                 new_feat[i,:] = np.mean(feat[r[i]:r[i+1],:], 0)
@@ -72,14 +93,18 @@ def uniform_extract(feat, t_max, avg: bool = True):
             
     return new_feat
 
-def pad(feat, min_len):
+def pad(feat: np.ndarray, min_len: int) -> np.ndarray:
     clip_length = feat.shape[0]
-    if clip_length <= min_len:
-       return np.pad(feat, ((0, min_len - clip_length), (0, 0)), mode='constant', constant_values=0)
+    if clip_length < min_len:
+        # (a, b) means pad a elements before the row and pad b elements after the row
+        return np.pad(feat, ((0, min_len - clip_length), (0, 0)), mode='constant', constant_values=0)
     else:
        return feat
 
 def process_feat(feat, length, is_random=False):
+    """
+    Pad or truncate the feature to a fixed length
+    """
     clip_length = feat.shape[0]
     if feat.shape[0] > length:
         if is_random:
@@ -91,16 +116,12 @@ def process_feat(feat, length, is_random=False):
 
 def process_split(feat, length):
     clip_length = feat.shape[0]
-    if clip_length < length:
-        return pad(feat, length), clip_length
-    else:
-        split_num = int(clip_length / length) + 1
-        for i in range(split_num):
-            if i == 0:
-                split_feat = feat[i*length:i*length+length, :].reshape(1, length, feat.shape[1])
-            elif i < split_num - 1:
-                split_feat = np.concatenate([split_feat, feat[i*length:i*length+length, :].reshape(1, length, feat.shape[1])], axis=0)
-            else:
-                split_feat = np.concatenate([split_feat, pad(feat[i*length:i*length+length, :], length).reshape(1, length, feat.shape[1])], axis=0)
-
-        return split_feat, clip_length
+    if clip_length == 0:
+        return np.empty((0, length, feat.shape[1]), dtype=np.float32), clip_length
+    split_num = math.ceil(clip_length / length)
+    chunks = [
+        pad(feat[i * length : (i + 1) * length, :], length)
+        for i in range(split_num)
+    ]
+    split_feat = np.stack(chunks, axis=0)
+    return split_feat, clip_length

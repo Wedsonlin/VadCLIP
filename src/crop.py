@@ -234,8 +234,8 @@ def convert_video_to_clip_features(
         )
 
 if __name__ == '__main__':
-    video_dir = "H:\\Datasets\\XD-Violence\\test\\videos"
-    feature_save_dir = "H:\\Datasets\\XD-Violence\\test\\my-clipfeatures"
+    video_dir = "H:\\Datasets\\XD-Violence\\train\\videos"
+    feature_save_dir = "H:\\Datasets\\XD-Violence\\train\\my-clipfeatures"
     pattern = "*.mp4"
 
     convert_video_to_clip_features(

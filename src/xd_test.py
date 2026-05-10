@@ -25,7 +25,8 @@ def test(model, testdataloader, maxlen, prompt_text, gt, gtsegments, gtlabels, d
 
             length = int(length)
             len_cur = length
-            if len_cur < maxlen:
+            # Short clips used to be [L, D] here; if dataset returns [1, L, D], do not add another dim.
+            if len_cur < maxlen and visual.dim() == 2:
                 visual = visual.unsqueeze(0)
 
             visual = visual.to(device)
