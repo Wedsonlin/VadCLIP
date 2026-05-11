@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from clip import clip
+from test import video
 from utils.layers import GraphConvolution, DistanceAdj
 
 class LayerNorm(nn.LayerNorm):
@@ -136,7 +137,7 @@ class CLIPVAD(nn.Module):
         nn.init.normal_(self.text_prompt_embeddings.weight, std=0.01)
         nn.init.normal_(self.frame_position_embeddings.weight, std=0.01)
 
-    def build_attention_mask(self, attn_window):
+    def build_attention_mask(self, attn_window: int) -> torch.Tensor:
         # lazily create non-overlapping local attention mask with attention window size attn_window
         # pytorch uses additive attention mask; fill with -inf
         mask = torch.empty(self.visual_length, self.visual_length)
@@ -226,26 +227,26 @@ class CLIPVAD(nn.Module):
 
         return text_features
 
-    def forward(self, visual, padding_mask, text, lengths):
-        visual_features = self.encode_video(visual, padding_mask, lengths) # (B,T,D)
-        logits1 = self.classifier(visual_features + self.mlp2(visual_features)) # (B,T,1)
+    def forward(self, video, padding_mask, text, lengths):
+        B = video.shape[0]
+        video_features = self.encode_video(video, padding_mask, lengths) # (B,T,D)
+        anomaly_confidence = self.classifier(video_features + self.mlp2(video_features)) # (B,T,1)
+        anomaly_confidence = torch.sigmoid(anomaly_confidence)
 
         text_features_ori = self.encode_textprompt(text) # (C,D) text features of label classes
 
         text_features = text_features_ori
-        logits_attn = logits1.permute(0, 2, 1) # (B,T,1) -> (B,1,T)
-        visual_attn = logits_attn @ visual_features # (B,1,T) @ (B,T,D) -> (B,1,D)
-        visual_attn = visual_attn / visual_attn.norm(dim=-1, keepdim=True)
-        visual_attn = visual_attn.expand(visual_attn.shape[0], text_features_ori.shape[0], visual_attn.shape[2]) # (B,C,D)
+        visual_prompt = anomaly_confidence.transpose(1, 2) @ video_features # (B,1,T) @ (B,T,D) -> (B,1,D)
+        visual_prompt = F.normalize(visual_prompt, p=2, dim=-1)
+        visual_prompt = visual_prompt.expand(B, text_features_ori.shape[0], visual_prompt.shape[2]) # (B,C,D)
         text_features = text_features_ori.unsqueeze(0) # (C,D) -> (1,C,D)
-        text_features = text_features.expand(visual_attn.shape[0], text_features.shape[1], text_features.shape[2]) # (B,C,D)
-        text_features = text_features + visual_attn 
+        text_features = text_features.expand(B, -1, -1) # (B,C,D)
+        text_features = text_features + visual_prompt 
         text_features = text_features + self.mlp1(text_features) # (B,C,D)
+        
+        video_features = F.normalize(video_features, p=2, dim=-1) # (B,T,D)
+        text_features = F.normalize(text_features, p=2, dim=-1) # (B,C,D)
+        alignment_map = video_features @ text_features.transpose(1, 2).type(video_features.dtype) / 0.07 # (B,T,D) @ (B,D,C) -> (B,T,C)
 
-        visual_features_norm = visual_features / visual_features.norm(dim=-1, keepdim=True)
-        text_features_norm = text_features / text_features.norm(dim=-1, keepdim=True)
-        text_features_norm = text_features_norm.permute(0, 2, 1)
-        logits2 = visual_features_norm @ text_features_norm.type(visual_features_norm.dtype) / 0.07
-
-        return text_features_ori, logits1, logits2
+        return text_features_ori, anomaly_confidence, alignment_map
     

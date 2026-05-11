@@ -3,47 +3,43 @@ import math
 import torch
 import numpy as np
 
-def get_batch_label(texts, prompt_text, label_map: dict):
-    label_vectors = torch.zeros(0)
-    if len(label_map) != 7:
-        if len(label_map) == 2:
-            for text in texts:
-                label_vector = torch.zeros(2)
-                if text == 'Normal':
-                    label_vector[0] = 1
-                else:
-                    label_vector[1] = 1
-                label_vector = label_vector.unsqueeze(0)
-                label_vectors = torch.cat([label_vectors, label_vector], dim=0)
-        else:
-            for text in texts:
-                label_vector = torch.zeros(len(prompt_text))
-                if text in label_map:
-                    label_text = label_map[text]
-                    label_vector[prompt_text.index(label_text)] = 1
+def get_batch_label_vector(
+    labels: list[str],
+    label_map: dict[str, str],
+) -> torch.Tensor:
+    """
+    Encode a batch of string labels as a multi-hot tensor.
 
-                label_vector = label_vector.unsqueeze(0)
-                label_vectors = torch.cat([label_vectors, label_vector], dim=0)
-    else:
-        for text in texts:
-            label_vector = torch.zeros(len(prompt_text))
-            labels = text.split('-')
-            for label in labels:
-                if label in label_map:
-                    label_text = label_map[label]
-                    label_vector[prompt_text.index(label_text)] = 1
-            
-            label_vector = label_vector.unsqueeze(0)
-            label_vectors = torch.cat([label_vectors, label_vector], dim=0)
+    Column order follows ``class_list = list(label_map.values())`` (dict insertion order
+    in Python 3.7+). This must match the class order used elsewhere (e.g. CLIP text
+    prompts and loss indexing).
 
-    return label_vectors
+    For each entry in ``labels``, the string is split on ``'-'``. Every token that appears
+    as a **key** in ``label_map`` sets the column for ``label_map[token]`` to ``1`` via
+    ``class_list.index(...)``. Tokens not in ``label_map`` are ignored. A single token
+    yields a one-hot row; multiple valid tokens (e.g. XD-style ``B1-0-0``) yield multi-hot.
 
-def get_prompt_text(label_map: dict):
-    prompt_text = []
-    for v in label_map.values():
-        prompt_text.append(v)
+    Args:
+        labels: Batch of label strings (e.g. from the dataset CSV ``label`` column).
+        label_map: Maps **token** (substring after split) to **display / prompt class name**
+            stored as dict values; keys must cover every token you want to activate.
 
-    return prompt_text
+    Returns:
+        Float tensor of shape ``(len(labels), len(label_map))``.
+    """
+    class_list = list(label_map.values())
+    c = len(class_list)
+    rows: list[torch.Tensor] = []
+
+    for label in labels:
+        v = torch.zeros(c)
+        for token in str(label).split("-"):
+            if token in label_map:
+                class_name = label_map[token]
+                v[class_list.index(class_name)] = 1.0
+        rows.append(v.unsqueeze(0))
+
+    return torch.cat(rows, dim=0)
 
 def get_batch_mask(lengths, maxlen):
     batch_size = lengths.shape[0]

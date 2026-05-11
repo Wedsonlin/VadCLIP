@@ -11,8 +11,40 @@ from utils.tools import get_batch_mask, get_prompt_text
 from utils.xd_detectionMAP import getDetectionMAP as dmAP
 import xd_option
 
-def test(model, testdataloader, maxlen, prompt_text, gt, gtsegments, gtlabels, device):
-    
+def test(
+    model: CLIPVAD,
+    testdataloader: DataLoader,
+    maxlen: int,
+    prompt_text: list[str],
+    gt: np.ndarray,
+    gtsegments: np.ndarray,
+    gtlabels: np.ndarray,
+    device: str | torch.device,
+) -> tuple[float, float, int]:
+    """
+    Evaluate a trained VadCLIP model on the XD-Violence test split (coarse and fine-grained).
+
+    For each sample, runs forward with optional multi-window padding for long clips, then
+    concatenates frame-level scores across the dataset. Reports branch-1 (classifier) and
+    branch-2 (alignment) ROC-AUC / AP against frame-level ``gt`` (with 16x repetition to
+    match CLIP stride), and detection mAP from softmax alignment logits vs ``gtsegments`` /
+    ``gtlabels``.
+
+    Args:
+        model: Trained ``CLIPVAD`` instance.
+        testdataloader: Typically ``batch_size=1`` loader yielding ``(visual_feat, label,
+            feat_length)`` per batch (see ``XDDataset`` in test mode).
+        maxlen: Temporal length ``T`` fed to the model (``visual_length`` / ``args.visual_length``).
+        prompt_text: Ordered list of class prompt strings matching model head dimension ``C``.
+        gt: Frame-level binary ground-truth array aligned with repeated predictions.
+        gtsegments: Per-video anomaly segment intervals for mAP (pickled ``.npy`` structure).
+        gtlabels: Per-segment class strings for mAP (pickled ``.npy`` structure).
+        device: ``\"cuda\"``, ``\"cpu\"``, or ``torch.device``.
+
+    Returns:
+        ``(ROC1, AP2, 0)`` — ROC-AUC for branch 1, Average Precision for branch 2, placeholder
+        third value (average mAP not returned; see printed metrics).
+    """
     model.to(device)
     model.eval()
 

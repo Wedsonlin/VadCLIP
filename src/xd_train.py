@@ -9,45 +9,110 @@ import random
 from model import CLIPVAD
 from xd_test import test
 from utils.dataset import XDDataset
-from utils.tools import get_prompt_text, get_batch_label
+from utils.tools import get_batch_label_vector
 import xd_option
 
-def CLASM(logits, labels, lengths, device):
-    instance_logits = torch.zeros(0).to(device)
+def BCE(
+    anomaly_confidence: torch.Tensor,
+    instance_label: torch.Tensor,
+    lengths: torch.Tensor,
+    device: torch.device | str,
+) -> torch.Tensor:
+    """
+    Video-level binary classification error (BCE) after Top-K MIL on sigmoid frame scores (coarse branch).
+
+    Per clip, averages the top ``floor(T_i/16)+1`` frame scores on indices ``[0, lengths[i])``,
+    then compares to binary targets derived from ``instance_labels``.
+
+    Args:
+        anomaly_confidences: Per-frame anomaly probability map after sigmoid; shape
+            ``(B, T)`` or ``(B, T, 1)``.
+        instance_labels: Multi-hot clip labels from ``get_batch_label``; shape ``(B, C)``.
+            Column ``0`` is the normal class (XD): targets become ``1 - instance_labels[:, 0]``,
+            shape ``(B,)``, values ``0`` or ``1``.
+        lengths: Valid frame count per clip (padding excluded); shape ``(B,)``, integer dtype,
+            each entry ``<= T``.
+        device: Device for internal temporaries (e.g. ``"cuda"``, ``torch.device("cuda")``).
+
+    Returns:
+        Scalar tensor — mean binary cross-entropy over batch (both operands implicitly ``(B,)``).
+    """
+    video_level_scores = torch.zeros(0).to(device)
+    binary_label = (1 - instance_label[:, 0]).reshape(-1).to(device) # (B,)
+    lengths = lengths.to(device) # (B,)
+    anomaly_condifence = anomaly_confidence.squeeze(-1) # (B,T)
+
+    for i in range(anomaly_condifence.shape[0]):
+        topk_scores, _ = torch.topk(
+            anomaly_condifence[i, 0 : lengths[i]],
+            k=int(lengths[i] / 16 + 1),
+            largest=True,
+        )
+        score = torch.mean(topk_scores, dim=-1, keepdim=True) # (1,)
+        video_level_scores = torch.cat([video_level_scores, score], dim=0) # (B,)
+
+    loss = F.binary_cross_entropy(video_level_scores, binary_label)
+    return loss
+
+def NCE(logits: torch.Tensor, labels: torch.Tensor, lengths: torch.Tensor, device: torch.device | str) -> torch.Tensor:
+    """
+    MIL-style Noise Contrastive Estimation (NCE): Top-K temporal pooling per clip, then soft-target cross-entropy.
+
+    Args:
+        logits: Frame-class alignment scores (before softmax), shape ``(B, T, C)``.
+        labels: Multi-hot clip labels, shape ``(B, C)``; row-normalized internally to a probability
+            distribution before ``cross_entropy``.
+        lengths: Valid frames per sample (padding excluded), shape ``(B,)``, integer dtype; each
+            entry ``<= T``. Must be on the same device as ``logits`` for slicing.
+
+    Returns:
+        Scalar tensor (``float`` dtype): mean over the batch of ``F.cross_entropy`` between
+        softmax logits over classes ``C`` and row-normalized ``labels``.
+    """
+    instance_logits = []
     labels = labels / torch.sum(labels, dim=1, keepdim=True)
     labels = labels.to(device)
 
     for i in range(logits.shape[0]):
-        tmp, _ = torch.topk(logits[i, 0:lengths[i]], k=int(lengths[i] / 16 + 1), largest=True, dim=0)
-        instance_logits = torch.cat([instance_logits, torch.mean(tmp, 0, keepdim=True)], dim=0)
+        topk_score, _ = torch.topk(logits[i, 0:lengths[i]], k=int(lengths[i] / 16 + 1), largest=True, dim=0) # (K, C)
+        instance_logits.append(torch.mean(topk_score, dim=0, keepdim=True))
 
-    milloss = -torch.mean(torch.sum(labels * F.log_softmax(instance_logits, dim=1), dim=1), dim=0)
-    return milloss
+    instance_logits = torch.cat(instance_logits, dim=0) # (B,C)
+    loss = F.cross_entropy(instance_logits, labels, reduction='mean')
+    return loss
 
-def CLAS2(logits, labels, lengths, device):
-    instance_logits = torch.zeros(0).to(device)
-    labels = 1 - labels[:, 0].reshape(labels.shape[0])
-    labels = labels.to(device)
-    logits = torch.sigmoid(logits).reshape(logits.shape[0], logits.shape[1])
+def CTS(text_features: torch.Tensor, device: torch.device | str) -> torch.Tensor:
+    """
+    Contrastive term pushing abnormal-class text embeddings away from the normal class.
 
-    for i in range(logits.shape[0]):
-        tmp, _ = torch.topk(logits[i, 0:lengths[i]], k=int(lengths[i] / 16 + 1), largest=True)
-        tmp = torch.mean(tmp).view(1)
-        instance_logits = torch.cat((instance_logits, tmp))
+    Assumes ``text_features`` is ``(C, D)`` with row ``0`` the normal prompt and rows ``1:C``
+    the anomaly prompts. Rows are L2-normalized; loss is the mean absolute cosine similarity
+    between normal and each abnormal embedding.
 
-    clsloss = F.binary_cross_entropy(instance_logits, labels)
-    return clsloss
+    Args:
+        text_features: Class text embeddings from ``encode_textprompt``, shape ``(C, D)``.
+        device: Target device for the computation.
+
+    Returns:
+        Scalar tensor — mean of ``|⟨û, â_j⟩|`` over abnormal indices ``j`` (unit vectors).
+    """
+    text_features = F.normalize(text_features, p=2, dim=-1).to(device)
+    normal_text_feature = text_features[0]
+    abnormal_text_features = text_features[1:]
+    loss = torch.mean(torch.abs(abnormal_text_features @ normal_text_feature))
+
+    return loss
 
 def train(model, train_loader, test_loader, args, label_map: dict, device):
     model.to(device)
 
-    gt = np.load(args.gt_path)
-    gtsegments = np.load(args.gt_segment_path, allow_pickle=True)
-    gtlabels = np.load(args.gt_label_path, allow_pickle=True)
+    gt = np.load(args.gt_path) # frame-leval binary ground truth (whether the frame is anomalous or not)
+    gtsegments = np.load(args.gt_segment_path, allow_pickle=True) # segment-level ground truth (start and end frame of the anomalous segment)
+    gtlabels = np.load(args.gt_label_path, allow_pickle=True) # video-level ground truth (label of the anomalous video)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    scheduler = MultiStepLR(optimizer, args.scheduler_milestones, args.scheduler_rate)
-    prompt_text = get_prompt_text(label_map)
+    scheduler = MultiStepLR(optimizer, args.scheduler_milestones, args.scheduler_rate) # more suitable for short training epochs
+    label_classes = list(label_map.values())
     ap_best = 0
     epoch = 0
 
@@ -60,48 +125,38 @@ def train(model, train_loader, test_loader, args, label_map: dict, device):
         print("checkpoint info:")
         print("epoch:", epoch+1, " ap:", ap_best)
 
-    for e in range(args.max_epoch):
+    for epoch in range(args.max_epoch):
         model.train()
-        loss_total1 = 0
-        loss_total2 = 0
-        for i, item in enumerate(train_loader):
+        for item in train_loader:
             step = 0
-            visual_feat, text_labels, feat_lengths = item
-            visual_feat = visual_feat.to(device)
-            feat_lengths = feat_lengths.to(device)
-            text_labels = get_batch_label(text_labels, prompt_text, label_map).to(device)
+            video_clip_feature, text_labels, feature_length = item
+            video_clip_feature = video_clip_feature.to(device)
+            feature_length = feature_length.to(device)
+            instance_label = get_batch_label_vector(text_labels, label_map).to(device)
 
-            text_features, logits1, logits2 = model(visual_feat, None, prompt_text, feat_lengths) 
+            text_feature, anomaly_confidence, alignment_map = model(video_clip_feature, None, label_classes, feature_length) 
 
-            loss1 = CLAS2(logits1, text_labels, feat_lengths, device) 
-            loss_total1 += loss1.item()
+            bce_loss = BCE(anomaly_confidence, instance_label, feature_length, device) 
 
-            loss2 = CLASM(logits2, text_labels, feat_lengths, device)
-            loss_total2 += loss2.item()
+            nce_loss = NCE(alignment_map, instance_label, feature_length, device)
 
-            loss3 = torch.zeros(1).to(device)
-            text_feature_normal = text_features[0] / text_features[0].norm(dim=-1, keepdim=True)
-            for j in range(1, text_features.shape[0]):
-                text_feature_abr = text_features[j] / text_features[j].norm(dim=-1, keepdim=True)
-                loss3 += torch.abs(text_feature_normal @ text_feature_abr)
-            loss3 = loss3 / 6
-
-            loss = loss1 + loss2 + loss3 * 1e-4
+            cts_loss = CTS(text_feature, device)
+            loss = bce_loss + nce_loss + cts_loss * 1e-4
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            step += i * train_loader.batch_size
-            if step % 4800 == 0 and step != 0:
-                print('epoch: ', e+1, '| step: ', step, '| loss1: ', loss_total1 / (i+1), '| loss2: ', loss_total2 / (i+1), '| loss3: ', loss3.item())
+            step += 1
+            if step % 50 == 0:
+                print('epoch: ', epoch+1, '| step: ', step, '| bce_loss: ', bce_loss.item(), '| nce_loss: ', nce_loss.item(), '| cts_loss: ', cts_loss.item())
                 
         scheduler.step()
-        AUC, AP, mAP = test(model, test_loader, args.visual_length, prompt_text, gt, gtsegments, gtlabels, device)
+        AUC, AP, mAP = test(model, test_loader, args.visual_length, label_classes, gt, gtsegments, gtlabels, device)
 
         if AP > ap_best:
             ap_best = AP 
             checkpoint = {
-                'epoch': e,
+                'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'ap': ap_best}
