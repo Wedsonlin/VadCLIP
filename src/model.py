@@ -69,6 +69,21 @@ class CLIPVAD(nn.Module):
                  prompt_prefix: int,
                  prompt_postfix: int,
                  device):
+        """
+        Initialize the CLIPVAD model.
+
+        Args:
+            num_class: Number of anomaly/action classes predicted by the model.
+            embed_dim: Dimensionality of CLIP text embeddings and learned text prompts.
+            visual_length: Nnumber of video segments per sample.
+            visual_width: Feature dimensionality of each visual segment.
+            visual_head: Number of attention heads in the temporal Transformer.
+            visual_layers: Number of residual attention blocks in the temporal Transformer.
+            attn_window: Temporal window size used to build the local attention mask.
+            prompt_prefix: Number of learnable prompt tokens inserted before class text.
+            prompt_postfix: Number of learnable prompt tokens inserted after class text.
+            device: Torch device used for CLIP loading and tensor placement.
+        """
         super().__init__()
 
         self.num_class = num_class
@@ -93,7 +108,7 @@ class CLIPVAD(nn.Module):
         self.gc3 = GraphConvolution(visual_width, width, residual=True)
         self.gc4 = GraphConvolution(width, width, residual=True)
         self.disAdj = DistanceAdj()
-        self.linear = nn.Linear(visual_width, visual_width)
+        self.linear = nn.Linear(visual_width, visual_width) # should be unbiased?
         self.gelu = QuickGELU()
 
         self.mlp1 = nn.Sequential(OrderedDict([
@@ -122,7 +137,7 @@ class CLIPVAD(nn.Module):
         nn.init.normal_(self.frame_position_embeddings.weight, std=0.01)
 
     def build_attention_mask(self, attn_window):
-        # lazily create causal attention mask, with full attention between the vision tokens
+        # lazily create non-overlapping local attention mask with attention window size attn_window
         # pytorch uses additive attention mask; fill with -inf
         mask = torch.empty(self.visual_length, self.visual_length)
         mask.fill_(float('-inf'))
@@ -134,48 +149,43 @@ class CLIPVAD(nn.Module):
 
         return mask
 
-    def adj4(self, x, seq_len):
-        soft = nn.Softmax(1)
-        x2 = x.matmul(x.permute(0, 2, 1)) # B*T*T
-        x_norm = torch.norm(x, p=2, dim=2, keepdim=True)  # B*T*1
-        x_norm_x = x_norm.matmul(x_norm.permute(0, 2, 1))
-        x2 = x2/(x_norm_x+1e-20)
-        output = torch.zeros_like(x2)
+    def cos_sim_adj(self, x: torch.Tensor, seq_len: int | None = None) -> torch.Tensor:
+        normalized_x = F.normalize(x, p=2, dim=2)
+        sim = normalized_x @ normalized_x.transpose(1, 2) # (B,T,D) @ (B,D,T) -> (B,T,T)
+        sim = F.threshold(sim, 0.7, 0)
+
         if seq_len is None:
-            for i in range(x.shape[0]):
-                tmp = x2[i]
-                adj2 = tmp
-                adj2 = F.threshold(adj2, 0.7, 0)
-                adj2 = soft(adj2)
-                output[i] = adj2
-        else:
-            for i in range(len(seq_len)):
-                tmp = x2[i, :seq_len[i], :seq_len[i]]
-                adj2 = tmp
-                adj2 = F.threshold(adj2, 0.7, 0)
-                adj2 = soft(adj2)
-                output[i, :seq_len[i], :seq_len[i]] = adj2
+            return  F.softmax(sim, dim=-1)
+
+        output = torch.zeros_like(sim)
+        valid_sim = sim[:, :seq_len, :seq_len]
+        output[:, :seq_len, :seq_len] = F.softmax(valid_sim, dim=-1)
 
         return output
 
     def encode_video(self, images, padding_mask, lengths):
         images = images.to(torch.float)
-        position_ids = torch.arange(self.visual_length, device=self.device)
-        position_ids = position_ids.unsqueeze(0).expand(images.shape[0], -1)
-        frame_position_embeddings = self.frame_position_embeddings(position_ids)
-        frame_position_embeddings = frame_position_embeddings.permute(1, 0, 2)
-        images = images.permute(1, 0, 2) + frame_position_embeddings
 
+        # learnable position embeddings
+        position_ids = torch.arange(self.visual_length, device=self.device) # (T,)
+        position_ids = position_ids.unsqueeze(0).expand(images.shape[0], -1) # (T,) -> (1,T) -> (B,T) 
+        frame_position_embeddings = self.frame_position_embeddings(position_ids) # (B,T,D)
+        images = images + frame_position_embeddings
+
+        # non-overlapping local attention transformer
+        images = images.permute(1, 0, 2) # (B,T,D) -> (T,B,D)
         x, _ = self.temporal((images, None))
-        x = x.permute(1, 0, 2)
+        x = x.permute(1, 0, 2) # (T,B,D) -> (B,T,D)
 
-        adj = self.adj4(x, lengths)
-        disadj = self.disAdj(x.shape[0], x.shape[1])
-        x1_h = self.gelu(self.gc1(x, adj))
-        x2_h = self.gelu(self.gc3(x, disadj))
-
-        x1 = self.gelu(self.gc2(x1_h, adj))
-        x2 = self.gelu(self.gc4(x2_h, disadj))
+        # two layer GCNs with cosine similarity adjacency matrix
+        cos_sim_adj = self.cos_sim_adj(x, lengths)
+        x1_h = self.gelu(self.gc1(x, cos_sim_adj))
+        x1 = self.gelu(self.gc2(x1_h, cos_sim_adj))
+        
+        # two layer GCNs with distance adjacency matrix
+        dis_adj = self.disAdj(x.shape[0], x.shape[1])
+        x2_h = self.gelu(self.gc3(x, dis_adj))
+        x2 = self.gelu(self.gc4(x2_h, dis_adj))
 
         x = torch.cat((x1, x2), 2)
         x = self.linear(x)
@@ -183,37 +193,54 @@ class CLIPVAD(nn.Module):
         return x
 
     def encode_textprompt(self, text):
-        word_tokens = clip.tokenize(text).to(self.device)
-        word_embedding = self.clipmodel.encode_token(word_tokens)
-        text_embeddings = self.text_prompt_embeddings(torch.arange(77).to(self.device)).unsqueeze(0).repeat([len(text), 1, 1])
-        text_tokens = torch.zeros(len(text), 77).to(self.device)
+        """
+        Encode class labels with learnable text prompts and the frozen CLIP text encoder.
+
+        The method tokenizes each label, obtains its CLIP token embeddings, and
+        inserts the label tokens into a length-77 learnable prompt sequence:
+        ``[SOT] [prefix prompts] label tokens [postfix prompts] [EOT] [PAD]``.
+        ``text_tokens`` is used only to mark the shifted EOT position so the
+        modified CLIP text encoder can pool the final text feature from that
+        token.
+
+        Args:
+            text: A list of class label strings.
+
+        Returns:
+            A tensor of encoded text features with shape ``(len(text), D)``.
+        """
+        label_tokens = clip.tokenize(text).to(self.device) # [SOT] tokens ... [EOT] [PAD] ... (C,77)
+        label_embeddings = self.clipmodel.encode_token(label_tokens) # (C,77,D)
+        prompt_embeddings = self.text_prompt_embeddings(torch.arange(77).to(self.device)).unsqueeze(0).repeat([len(text), 1, 1]) # (C,77,D)
+        text_tokens = torch.zeros(len(text), 77).to(self.device) 
+        # [SOT] {learnable prefix prompt tokens} label tokens {learnable postfix prompt tokens} [EOT] [PAD] ... (C,77)
 
         for i in range(len(text)):
-            ind = torch.argmax(word_tokens[i], -1)
-            text_embeddings[i, 0] = word_embedding[i, 0]
-            text_embeddings[i, self.prompt_prefix + 1: self.prompt_prefix + ind] = word_embedding[i, 1: ind]
-            text_embeddings[i, self.prompt_prefix + ind + self.prompt_postfix] = word_embedding[i, ind]
-            text_tokens[i, self.prompt_prefix + ind + self.prompt_postfix] = word_tokens[i, ind]
+            ind = torch.argmax(label_tokens[i], -1) # index of the EOT
+            prompt_embeddings[i, 0] = label_embeddings[i, 0] # SOT
+            prompt_embeddings[i, self.prompt_prefix + 1: self.prompt_prefix + ind] = label_embeddings[i, 1: ind] # label tokens
+            prompt_embeddings[i, self.prompt_prefix + ind + self.prompt_postfix] = label_embeddings[i, ind] # EOT
+            text_tokens[i, self.prompt_prefix + ind + self.prompt_postfix] = label_tokens[i, ind]
 
-        text_features = self.clipmodel.encode_text(text_embeddings, text_tokens)
+        text_features = self.clipmodel.encode_text(prompt_embeddings, text_tokens)
 
         return text_features
 
     def forward(self, visual, padding_mask, text, lengths):
-        visual_features = self.encode_video(visual, padding_mask, lengths)
-        logits1 = self.classifier(visual_features + self.mlp2(visual_features))
+        visual_features = self.encode_video(visual, padding_mask, lengths) # (B,T,D)
+        logits1 = self.classifier(visual_features + self.mlp2(visual_features)) # (B,T,1)
 
-        text_features_ori = self.encode_textprompt(text)
+        text_features_ori = self.encode_textprompt(text) # (C,D) text features of label classes
 
         text_features = text_features_ori
-        logits_attn = logits1.permute(0, 2, 1)
-        visual_attn = logits_attn @ visual_features
+        logits_attn = logits1.permute(0, 2, 1) # (B,T,1) -> (B,1,T)
+        visual_attn = logits_attn @ visual_features # (B,1,T) @ (B,T,D) -> (B,1,D)
         visual_attn = visual_attn / visual_attn.norm(dim=-1, keepdim=True)
-        visual_attn = visual_attn.expand(visual_attn.shape[0], text_features_ori.shape[0], visual_attn.shape[2])
-        text_features = text_features_ori.unsqueeze(0)
-        text_features = text_features.expand(visual_attn.shape[0], text_features.shape[1], text_features.shape[2])
-        text_features = text_features + visual_attn
-        text_features = text_features + self.mlp1(text_features)
+        visual_attn = visual_attn.expand(visual_attn.shape[0], text_features_ori.shape[0], visual_attn.shape[2]) # (B,C,D)
+        text_features = text_features_ori.unsqueeze(0) # (C,D) -> (1,C,D)
+        text_features = text_features.expand(visual_attn.shape[0], text_features.shape[1], text_features.shape[2]) # (B,C,D)
+        text_features = text_features + visual_attn 
+        text_features = text_features + self.mlp1(text_features) # (B,C,D)
 
         visual_features_norm = visual_features / visual_features.norm(dim=-1, keepdim=True)
         text_features_norm = text_features / text_features.norm(dim=-1, keepdim=True)

@@ -60,7 +60,26 @@ class linear(nn.Module):
 
 class GraphConvolution(Module):
     """
-    Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
+    Simple batched GCN layer, similar to https://arxiv.org/abs/1609.02907.
+
+    Args:
+        in_features: Input feature dimension for each graph node.
+        out_features: Output feature dimension for each graph node.
+        bias: Whether to add a learnable bias after graph aggregation.
+        residual: Whether to add a residual connection from the input.
+
+    Shapes:
+        input: Node features with shape ``(B, T, in_features)``.
+        adj: Adjacency matrices with shape ``(B, T, T)``.
+        output: Node features with shape ``(B, T, out_features)``.
+
+    Computation:
+        The layer first projects node features with a shared weight matrix
+        ``W`` and then aggregates projected features with the adjacency matrix:
+        ``output = adj @ (input @ W)``. If ``bias`` is enabled, the bias is
+        added after aggregation. If ``residual`` is enabled, the input is added
+        directly when dimensions match, or projected with a temporal Conv1d
+        when ``in_features != out_features``.
     """
 
     def __init__(self, in_features, out_features, bias=False, residual=True):
@@ -88,15 +107,15 @@ class GraphConvolution(Module):
 
     def forward(self, input, adj):
         # To support batch operations
-        support = input.matmul(self.weight)
-        output = adj.matmul(support)
+        support = input @ self.weight # (B,T,in) @ (in,out) -> (B,T,out)
+        output = adj @ support # (B,T,T) @ (B,T,out) -> (B,T,out)
 
         if self.bias is not None:
             output = output + self.bias
         if self.in_features != self.out_features and self.residual:
-            input = input.permute(0,2,1)
-            res = self.residual(input)
-            res = res.permute(0,2,1)
+            input = input.transpose(1, 2) # (B,T,in) -> (B,in,T)
+            res = self.residual(input) # (B,in,T) -> (B,out,T)
+            res = res.transpose(1, 2) # (B,out,T) -> (B,T,out)
             output = output + res
         else:
             output = output + self.residual(input)
@@ -163,19 +182,40 @@ class SimilarityAdj(Module):
                + str(self.out_features) + ')'
 
 class DistanceAdj(Module):
+    """
+    Build a batched temporal-distance adjacency matrix.
 
+    For a sequence with length ``T``, this module first computes the pairwise
+    cityblock distance between temporal indices, i.e. ``D[i, j] = abs(i - j)``.
+    It then converts distances into proximity weights with
+    ``A[i, j] = exp(-D[i, j] / e)``, so nearby temporal segments receive larger
+    adjacency weights than distant segments.
+
+    Args:
+        batch_size: Number of identical adjacency matrices to return.
+        max_seqlen: Temporal sequence length ``T``.
+
+    Returns:
+        A tensor with shape ``(batch_size, max_seqlen, max_seqlen)``. Each
+        batch item shares the same distance-based adjacency matrix.
+
+    Note:
+        ``sigma`` is registered as a learnable parameter, but the current
+        forward pass uses the constant ``e`` as the distance scale instead.
+    """
     def __init__(self):
         super(DistanceAdj, self).__init__()
         self.sigma = Parameter(FloatTensor(1))
         self.sigma.data.fill_(0.1)
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     def forward(self, batch_size, max_seqlen):
         # To support batch operations
         self.arith = np.arange(max_seqlen).reshape(-1, 1)
         dist = pdist(self.arith, metric='cityblock').astype(np.float32)
-        self.dist = torch.from_numpy(squareform(dist)).to('cuda')
+        self.dist = torch.from_numpy(squareform(dist)).to(self.device)
         self.dist = torch.exp(-self.dist / torch.exp(torch.tensor(1.)))
-        self.dist = torch.unsqueeze(self.dist, 0).repeat(batch_size, 1, 1).to('cuda')
+        self.dist = torch.unsqueeze(self.dist, 0).repeat(batch_size, 1, 1).to(self.device)
         return self.dist
     
 if __name__ == '__main__':
