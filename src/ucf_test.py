@@ -48,7 +48,7 @@ def test(model, testdataloader, maxlen, prompt_text, gt, gtsegments, gtlabels, d
             logits1 = logits1.reshape(logits1.shape[0] * logits1.shape[1], logits1.shape[2])
             logits2 = logits2.reshape(logits2.shape[0] * logits2.shape[1], logits2.shape[2])
             prob2 = (1 - logits2[0:len_cur].softmax(dim=-1)[:, 0].squeeze(-1))
-            prob1 = torch.sigmoid(logits1[0:len_cur].squeeze(-1))
+            prob1 = logits1[0:len_cur].squeeze(-1)
 
             if i == 0:
                 ap1 = prob1
@@ -64,8 +64,6 @@ def test(model, testdataloader, maxlen, prompt_text, gt, gtsegments, gtlabels, d
 
     ap1 = ap1.cpu().numpy()
     ap2 = ap2.cpu().numpy()
-    ap1 = ap1.tolist()
-    ap2 = ap2.tolist()
 
     ROC1 = roc_auc_score(gt, np.repeat(ap1, 16))
     AP1 = average_precision_score(gt, np.repeat(ap1, 16))

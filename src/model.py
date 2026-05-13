@@ -175,7 +175,7 @@ class CLIPVAD(nn.Module):
 
         # non-overlapping local attention transformer
         images = images.permute(1, 0, 2) # (B,T,D) -> (T,B,D)
-        x, _ = self.temporal((images, None))
+        x, _ = self.temporal((images, None)) # why doesn't use padding_mask?
         x = x.permute(1, 0, 2) # (T,B,D) -> (B,T,D)
 
         # two layer GCNs with cosine similarity adjacency matrix

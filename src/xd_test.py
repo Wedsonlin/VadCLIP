@@ -48,18 +48,20 @@ def test(
     model.to(device)
     model.eval()
 
-    element_logits2_stack = []
+    element_alignment_map_stack = []
 
     with torch.no_grad():
+        ap1 = []
+        ap2 = []
         for i, item in enumerate(testdataloader):
-            visual = item[0].squeeze(0)
-            length = item[2]
+            visual = item[0].squeeze(0) # (1,L,T,D)->(1,T,D) splited segments of video
+            length = item[2] # original length of the video
 
             length = int(length)
             len_cur = length
             # Short clips used to be [L, D] here; if dataset returns [1, L, D], do not add another dim.
             if len_cur < maxlen and visual.dim() == 2:
-                visual = visual.unsqueeze(0)
+                visual = visual.unsqueeze(0) # (1,T,D)
 
             visual = visual.to(device)
 
@@ -77,27 +79,25 @@ def test(
                     lengths[j] = length
             lengths = lengths.to(int)
             padding_mask = get_batch_mask(lengths, maxlen).to(device)
-            _, logits1, logits2 = model(visual, padding_mask, prompt_text, lengths)
-            logits1 = logits1.reshape(logits1.shape[0] * logits1.shape[1], logits1.shape[2])
-            logits2 = logits2.reshape(logits2.shape[0] * logits2.shape[1], logits2.shape[2])
-            prob2 = (1 - logits2[0:len_cur].softmax(dim=-1)[:, 0].squeeze(-1))
-            prob1 = torch.sigmoid(logits1[0:len_cur].squeeze(-1))
+            _, anomaly_condifence, alignment_map = model(visual, padding_mask, prompt_text, lengths)
+            anomaly_condifence = anomaly_condifence.reshape(anomaly_condifence.shape[0] * anomaly_condifence.shape[1], anomaly_condifence.shape[2]) # (L*T,1)
+            alignment_map = alignment_map.reshape(alignment_map.shape[0] * alignment_map.shape[1], alignment_map.shape[2]) # (L*T，C)
 
-            if i == 0:
-                ap1 = prob1
-                ap2 = prob2
-            else:
-                ap1 = torch.cat([ap1, prob1], dim=0)
-                ap2 = torch.cat([ap2, prob2], dim=0)
+            anomaly_prob1 = anomaly_condifence[0:len_cur].squeeze(-1)
+            anomaly_prob2 = (1 - alignment_map[0:len_cur].softmax(dim=-1)[:, 0].squeeze(-1))
 
-            element_logits2 = logits2[0:len_cur].softmax(dim=-1).detach().cpu().numpy()
-            element_logits2 = np.repeat(element_logits2, 16, 0)
-            element_logits2_stack.append(element_logits2)
+            ap1.append(anomaly_prob1)
+            ap2.append(anomaly_prob2)
+
+            element_alignment_map = alignment_map[0:len_cur].softmax(dim=-1).detach().cpu().numpy()
+            element_alignment_map = np.repeat(element_alignment_map, 16, 0)
+            element_alignment_map_stack.append(element_alignment_map)
+        
+        ap1 = torch.cat(ap1, dim=0)
+        ap2 = torch.cat(ap2, dim=0)
 
     ap1 = ap1.cpu().numpy()
     ap2 = ap2.cpu().numpy()
-    ap1 = ap1.tolist()
-    ap2 = ap2.tolist()
 
     ROC1 = roc_auc_score(gt, np.repeat(ap1, 16))
     AP1 = average_precision_score(gt, np.repeat(ap1, 16))
@@ -107,7 +107,7 @@ def test(
     print("AUC1: ", ROC1, " AP1: ", AP1)
     print("AUC2: ", ROC2, " AP2:", AP2)
 
-    dmap, iou = dmAP(element_logits2_stack, gtsegments, gtlabels, excludeNormal=False)
+    dmap, iou = dmAP(element_alignment_map_stack, gtsegments, gtlabels, excludeNormal=False)
     averageMAP = 0
     for i in range(5):
         print('mAP@{0:.1f} ={1:.2f}%'.format(iou[i], dmap[i]))
