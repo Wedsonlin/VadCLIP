@@ -12,4 +12,6 @@ Thumbs.db
 .idea/
 .vscode/
 
+wandb/
+model/
 *.pdf
