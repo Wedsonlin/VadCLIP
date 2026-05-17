@@ -5,11 +5,9 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from clip import clip
-from test import video
 from utils.layers import GraphConvolution, DistanceAdj
 
 class LayerNorm(nn.LayerNorm):
-
     def forward(self, x: torch.Tensor):
         orig_type = x.dtype
         ret = super().forward(x.type(torch.float32))
@@ -150,7 +148,7 @@ class CLIPVAD(nn.Module):
 
         return mask
 
-    def cos_sim_adj(self, x: torch.Tensor, seq_len: int | None = None) -> torch.Tensor:
+    def cos_sim_adj(self, x: torch.Tensor, seq_len: torch.Tensor | None = None) -> torch.Tensor:
         normalized_x = F.normalize(x, p=2, dim=2)
         sim = normalized_x @ normalized_x.transpose(1, 2) # (B,T,D) @ (B,D,T) -> (B,T,T)
         sim = F.threshold(sim, 0.7, 0)
@@ -159,8 +157,12 @@ class CLIPVAD(nn.Module):
             return  F.softmax(sim, dim=-1)
 
         output = torch.zeros_like(sim)
-        valid_sim = sim[:, :seq_len, :seq_len]
-        output[:, :seq_len, :seq_len] = F.softmax(valid_sim, dim=-1)
+        for i,length in enumerate(seq_len.tolist()):
+            if length == 0:
+                continue
+
+            valid_sim = sim[i, :length, :length]
+            output[i, :length, :length] = F.softmax(valid_sim, dim=-1)
 
         return output
 

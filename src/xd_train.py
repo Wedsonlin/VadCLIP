@@ -1,15 +1,16 @@
 import torch
-from torch import nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import MultiStepLR
 import numpy as np
 import random
+from argparse import ArgumentParser
 
 from model import CLIPVAD
 from xd_test import test
 from utils.dataset import XDDataset
 from utils.tools import get_batch_label_vector
+from utils.logger import Logger
 import xd_option
 
 def BCE(
@@ -103,7 +104,15 @@ def CTS(text_features: torch.Tensor, device: torch.device | str) -> torch.Tensor
 
     return loss
 
-def train(model, train_loader, test_loader, args, label_map: dict, device):
+def train(
+    model: CLIPVAD, 
+    train_loader: DataLoader, 
+    test_loader: DataLoader, 
+    args: ArgumentParser, 
+    label_map: dict[str, str], 
+    device: torch.device | str, 
+    logger: Logger | None = None
+    ) -> None:
     model.to(device)
 
     gt = np.load(args.gt_path) # frame-leval binary ground truth (whether the frame is anomalous or not)
@@ -127,8 +136,8 @@ def train(model, train_loader, test_loader, args, label_map: dict, device):
 
     for epoch in range(args.max_epoch):
         model.train()
+        step = 0
         for item in train_loader:
-            step = 0
             video_clip_feature, text_labels, feature_length = item
             video_clip_feature = video_clip_feature.to(device)
             feature_length = feature_length.to(device)
@@ -148,11 +157,22 @@ def train(model, train_loader, test_loader, args, label_map: dict, device):
             optimizer.step()
             step += 1
             if step % 50 == 0:
-                print('epoch: ', epoch+1, '| step: ', step, '| bce_loss: ', bce_loss.item(), '| nce_loss: ', nce_loss.item(), '| cts_loss: ', cts_loss.item())
-                
+                print('epoch: ', epoch+1, '| step: ', step, '| bce_loss: ', f'{bce_loss.item():.4f}', '| nce_loss: ', f'{nce_loss.item():.4f}', '| cts_loss: ', f'{cts_loss.item():.4f}')
+                if logger is not None:
+                    logger.log_train({
+                        "bce_loss": bce_loss.item(),
+                        "nce_loss": nce_loss.item(),
+                        "cts_loss": cts_loss.item(),
+                    })
+        
         scheduler.step()
         AUC, AP, mAP = test(model, test_loader, args.visual_length, label_classes, gt, gtsegments, gtlabels, device)
-
+        if logger is not None:
+            logger.log_eval({
+                "AUC": AUC,
+                "ap": AP,
+                "mAP": mAP,
+            })
         if AP > ap_best:
             ap_best = AP 
             checkpoint = {
@@ -189,4 +209,5 @@ if __name__ == '__main__':
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
 
     model = CLIPVAD(args.classes_num, args.embed_dim, args.visual_length, args.visual_width, args.visual_head, args.visual_layers, args.attn_window, args.prompt_prefix, args.prompt_postfix, device)
-    train(model, train_loader, test_loader, args, label_map, device)
+    logger = Logger(project="WSAVD", name="xd-violence_train-test")
+    train(model, train_loader, test_loader, args, label_map, device, logger)

@@ -1,3 +1,4 @@
+import math
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -7,7 +8,7 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 
 from model import CLIPVAD
 from utils.dataset import XDDataset
-from utils.tools import get_batch_mask, get_prompt_text
+from utils.tools import get_batch_mask
 from utils.xd_detectionMAP import getDetectionMAP as dmAP
 import xd_option
 
@@ -65,8 +66,9 @@ def test(
 
             visual = visual.to(device)
 
-            lengths = torch.zeros(int(length / maxlen) + 1)
-            for j in range(int(length / maxlen) + 1):
+            split_num = math.ceil(length / maxlen)
+            lengths = torch.zeros(split_num)
+            for j in range(split_num):
                 if j == 0 and length < maxlen:
                     lengths[j] = length
                 elif j == 0 and length > maxlen:
@@ -115,7 +117,7 @@ def test(
     averageMAP = averageMAP/(i+1)
     print('average MAP: {:.2f}'.format(averageMAP))
 
-    return ROC1, AP2 ,0#, averageMAP
+    return ROC1, AP2 , averageMAP
 
 
 if __name__ == '__main__':
@@ -127,13 +129,13 @@ if __name__ == '__main__':
     test_dataset = XDDataset(args.visual_length, args.test_list, True, label_map)
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
 
-    prompt_text = get_prompt_text(label_map)
+    prompt_text = list(label_map.values())
     gt = np.load(args.gt_path)
     gtsegments = np.load(args.gt_segment_path, allow_pickle=True)
     gtlabels = np.load(args.gt_label_path, allow_pickle=True)
 
     model = CLIPVAD(args.classes_num, args.embed_dim, args.visual_length, args.visual_width, args.visual_head, args.visual_layers, args.attn_window, args.prompt_prefix, args.prompt_postfix, device)
-    model_param = torch.load(args.model_path)
+    model_param = torch.load("H:\\BaiduNetdiskDownload\\model_xd.pth")
     model.load_state_dict(model_param)
 
     test(model, test_loader, args.visual_length, prompt_text, gt, gtsegments, gtlabels, device)

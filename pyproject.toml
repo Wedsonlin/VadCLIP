@@ -18,6 +18,7 @@ dependencies = [
     "packaging>=23.0",
     "ftfy",
     "regex",
+    "wandb>=0.27.0",
 ]
 
 [project.optional-dependencies]
