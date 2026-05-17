@@ -106,8 +106,8 @@ def test(
     ROC2 = roc_auc_score(gt, np.repeat(ap2, 16))
     AP2 = average_precision_score(gt, np.repeat(ap2, 16))
 
-    print("AUC1: ", ROC1, " AP1: ", AP1)
-    print("AUC2: ", ROC2, " AP2:", AP2)
+    print(f"AUC1: {ROC1:.4f} AP1: {AP1:.4f}")
+    print(f"AUC2: {ROC2:.4f} AP2: {AP2:.4f}")
 
     dmap, iou = dmAP(element_alignment_map_stack, gtsegments, gtlabels, excludeNormal=False)
     averageMAP = 0
@@ -117,7 +117,7 @@ def test(
     averageMAP = averageMAP/(i+1)
     print('average MAP: {:.2f}'.format(averageMAP))
 
-    return ROC1, AP2 , averageMAP
+    return ROC1, AP1 , averageMAP
 
 
 if __name__ == '__main__':
