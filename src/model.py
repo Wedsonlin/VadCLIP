@@ -232,13 +232,13 @@ class CLIPVAD(nn.Module):
     def forward(self, video, padding_mask, text, lengths):
         B = video.shape[0]
         video_features = self.encode_video(video, padding_mask, lengths) # (B,T,D)
-        anomaly_confidence = self.classifier(video_features + self.mlp2(video_features)) # (B,T,1)
-        anomaly_confidence = torch.sigmoid(anomaly_confidence)
+        logits = self.classifier(video_features + self.mlp2(video_features)) # (B,T,1)
+        anomaly_confidence = torch.sigmoid(logits)
 
         text_features_ori = self.encode_textprompt(text) # (C,D) text features of label classes
 
         text_features = text_features_ori
-        visual_prompt = anomaly_confidence.transpose(1, 2) @ video_features # (B,1,T) @ (B,T,D) -> (B,1,D)
+        visual_prompt = logits.transpose(1, 2) @ video_features # (B,1,T) @ (B,T,D) -> (B,1,D)
         visual_prompt = F.normalize(visual_prompt, p=2, dim=-1)
         visual_prompt = visual_prompt.expand(B, text_features_ori.shape[0], visual_prompt.shape[2]) # (B,C,D)
         text_features = text_features_ori.unsqueeze(0) # (C,D) -> (1,C,D)
