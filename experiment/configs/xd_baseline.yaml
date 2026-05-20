@@ -1,0 +1,22 @@
+# Simple key-value config parsed by experiment/scripts/common.py.
+model_path: model/model_xd.pth
+test_list: list/xd_CLIP_rgbtest.csv
+gt_path: list/gt.npy
+gt_segment_path: list/gt_segment.npy
+gt_label_path: list/gt_label.npy
+device: auto
+batch_size: 1
+num_workers: 0
+embed_dim: 512
+visual_length: 256
+visual_width: 512
+visual_head: 1
+visual_layers: 1
+attn_window: 64
+prompt_prefix: 10
+prompt_postfix: 10
+classes_num: 7
+experiment_name: xd_baseline
+metrics_csv: experiment/results/metrics.csv
+metrics_json: experiment/results/xd_baseline.json
+strict_load: true
