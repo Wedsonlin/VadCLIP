@@ -37,11 +37,24 @@ score = alpha * branch1 + (1 - alpha) * branch2
 
 ## 3. LGT-Adapter and Loss Ablations
 
-Run evaluation-time LGT-Adapter ablations with the same checkpoint:
+Train separate checkpoints for the seven LGT-Adapter variants in Table 5:
 
 ```bash
 python experiment/scripts/run_ablation.py --config experiment/configs/xd_ablation.yaml
 ```
+
+This is the paper-style adapter ablation. It trains one model per variant, so it costs about seven full XD training runs.
+
+Benchmark adapter inference latency without dataset I/O:
+
+```bash
+python experiment/scripts/run_ablation.py \
+  --config experiment/configs/xd_ablation.yaml \
+  --skip-adapter-ablations \
+  --benchmark-adapter-latency
+```
+
+Latency rows report mean/std/median forward time and throughput for fixed dummy inputs. They measure compute cost, not detection performance.
 
 Run loss-function ablations by training separate models:
 

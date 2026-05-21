@@ -117,7 +117,7 @@ def test(
     averageMAP = averageMAP/(i+1)
     print('average MAP: {:.2f}'.format(averageMAP))
 
-    return ROC1, AP1 , averageMAP
+    return ROC2, AP2 , averageMAP
 
 
 if __name__ == '__main__':

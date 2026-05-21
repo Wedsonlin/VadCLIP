@@ -21,12 +21,16 @@ attn_window: 64
 prompt_prefix: 10
 prompt_postfix: 10
 classes_num: 7
-adapter_variants: ["full", "no_transformer", "no_gcn", "cosine_gcn_only", "distance_gcn_only"]
+adapter_variants: ["baseline", "global_tf", "local_tf", "only_gcn", "local_global_tf", "global_tf_gcn", "lgt_adapter"]
 loss_variants: ["full", "bce_nce", "bce_cts", "nce_cts"]
 fusion_alphas: [0, 0.25, 0.5, 0.75, 1]
 prompt_token_pairs: [[0, 0], [5, 5], [10, 10], [20, 20]]
 attn_windows: [16, 32, 64, 128]
 prompt_templates: [null, "a video of {label}", "an anomalous event of {label}"]
+benchmark_adapter_latency: false
+latency_warmup_iters: 10
+latency_iters: 100
+latency_batch_size: 1
 checkpoint_dir: experiment/results/checkpoints
 experiment_name: xd_ablation
 metrics_csv: experiment/results/metrics.csv
