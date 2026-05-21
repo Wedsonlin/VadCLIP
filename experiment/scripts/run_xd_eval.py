@@ -22,10 +22,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    # load args from command line and merge with config file
     args = parse_args()
     config = load_config(args.config)
     settings = xd_settings(args, config)
 
+    # build model with config settings
     model = build_xd_model(settings)
     load_model_weights(
         model,

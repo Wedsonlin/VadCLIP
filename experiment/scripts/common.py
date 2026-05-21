@@ -172,7 +172,7 @@ def build_xd_dataloader(settings: dict[str, Any]) -> DataLoader:
 
 def build_xd_model(
     settings: dict[str, Any],
-    model_cls: type[CLIPVAD] = CLIPVAD,
+    model_cls: type[CLIPVAD] = CLIPVAD, # model_cls is class CLIPVAD or its subclass
     **model_kwargs: Any,
 ) -> CLIPVAD:
     return model_cls(
