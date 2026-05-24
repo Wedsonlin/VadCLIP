@@ -202,9 +202,8 @@ class CLIPVAD(nn.Module):
         The method tokenizes each label, obtains its CLIP token embeddings, and
         inserts the label tokens into a length-77 learnable prompt sequence:
         ``[SOT] [prefix prompts] label tokens [postfix prompts] [EOT] [PAD]``.
-        ``text_tokens`` is used only to mark the shifted EOT position so the
-        modified CLIP text encoder can pool the final text feature from that
-        token.
+        ``eot_indices`` records the shifted EOT positions so the modified CLIP
+        text encoder can pool the final text feature from those tokens.
 
         Args:
             text: A list of class label strings.
@@ -214,18 +213,23 @@ class CLIPVAD(nn.Module):
         """
         label_tokens = clip.tokenize(text).to(self.device) # [SOT] tokens ... [EOT] [PAD] ... (C,77)
         label_embeddings = self.clipmodel.encode_token(label_tokens) # (C,77,D)
-        prompt_embeddings = self.text_prompt_embeddings(torch.arange(77).to(self.device)).unsqueeze(0).repeat([len(text), 1, 1]) # (C,77,D)
-        text_tokens = torch.zeros(len(text), 77).to(self.device) 
+        pad_tokens = torch.zeros_like(label_tokens)
+        prompt_embeddings = self.clipmodel.encode_token(pad_tokens) # [PAD] [PAD] ... (C,77,D)
+        learnable_prompt_embeddings = self.text_prompt_embeddings(torch.arange(77).to(self.device)).unsqueeze(0).repeat([len(text), 1, 1]) # unified context (C,77,D)
+        eot_indices = torch.empty(len(text), dtype=torch.long, device=self.device)
         # [SOT] {learnable prefix prompt tokens} label tokens {learnable postfix prompt tokens} [EOT] [PAD] ... (C,77)
 
         for i in range(len(text)):
             ind = torch.argmax(label_tokens[i], -1) # index of the EOT
+            eot_index = self.prompt_prefix + ind + self.prompt_postfix
             prompt_embeddings[i, 0] = label_embeddings[i, 0] # SOT
+            prompt_embeddings[i, 1: self.prompt_prefix + 1] = learnable_prompt_embeddings[i, 1: self.prompt_prefix + 1] # prefix prompt tokens
             prompt_embeddings[i, self.prompt_prefix + 1: self.prompt_prefix + ind] = label_embeddings[i, 1: ind] # label tokens
-            prompt_embeddings[i, self.prompt_prefix + ind + self.prompt_postfix] = label_embeddings[i, ind] # EOT
-            text_tokens[i, self.prompt_prefix + ind + self.prompt_postfix] = label_tokens[i, ind]
+            prompt_embeddings[i, self.prompt_prefix + ind: eot_index] = learnable_prompt_embeddings[i, self.prompt_prefix + ind: eot_index] # postfix prompt tokens
+            prompt_embeddings[i, eot_index] = label_embeddings[i, ind] # EOT
+            eot_indices[i] = eot_index
 
-        text_features = self.clipmodel.encode_text(prompt_embeddings, text_tokens)
+        text_features = self.clipmodel.encode_text(prompt_embeddings, eot_indices)
 
         return text_features
 

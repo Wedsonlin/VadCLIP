@@ -45,6 +45,17 @@ python experiment/scripts/run_ablation.py --config experiment/configs/xd_ablatio
 
 This is the paper-style adapter ablation. It trains one model per variant, so it costs about seven full XD training runs.
 
+Evaluate trained adapter-variant checkpoints with their matching model structure:
+
+```bash
+python experiment/scripts/run_ablation.py \
+  --config experiment/configs/xd_ablation.yaml \
+  --skip-adapter-ablations \
+  --eval-adapter-checkpoints
+```
+
+To evaluate one variant, pass `--adapter-variants lgt_adapter`. Adapter checkpoints cannot be loaded by `run_xd_eval.py` because that script builds the base `CLIPVAD` model.
+
 Benchmark adapter inference latency without dataset I/O:
 
 ```bash
@@ -64,22 +75,26 @@ python experiment/scripts/run_ablation.py --config experiment/configs/xd_ablatio
 
 Loss variants include `full`, `bce_nce`, `bce_cts`, and `nce_cts`. Checkpoints are saved under `experiment/results/checkpoints/`.
 
-## 4. Prompt and Hyperparameter Sweeps
+## 4. Prompt Ablations
 
-Sweep prompt token counts, local attention windows, and prompt text templates:
+Train each prompt-length and placement variant independently:
 
 ```bash
 python experiment/scripts/run_prompt_hyperparams.py --config experiment/configs/xd_ablation.yaml
 ```
+
+The default run trains `no_prompt` plus `middle` and `end` placements for total learnable prompt lengths
+`4,6,8,10,12,14,16,18,20`. Checkpoints are saved under `experiment/results/checkpoints/` as
+`xd_prompt_<variant>.pth`.
 
 Useful overrides:
 
 ```bash
 python experiment/scripts/run_prompt_hyperparams.py \
   --config experiment/configs/xd_ablation.yaml \
-  --prompt-token-pairs 0/0,5/5,10/10,20/20 \
-  --attn-windows 16,32,64,128 \
-  --prompt-templates "{label}|a video of {label}"
+  --prompt-lengths 4,8,12 \
+  --prompt-placements middle,end \
+  --max-epoch 10
 ```
 
 ## 5. Qualitative Visualization
@@ -100,3 +115,4 @@ Outputs are written to `experiment/results/figures/`:
 - The scripts reuse `src/model.py`, `src/utils/dataset.py`, and the XD mAP implementation without modifying them.
 - Config files use a small key-value format parsed by `experiment/scripts/common.py`; no extra YAML dependency is required.
 - Keep `strict_load: true` for fair checkpoint evaluation. Use `--no-strict-load` only when intentionally testing architecture sizes that do not match a checkpoint.
+

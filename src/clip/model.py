@@ -350,7 +350,7 @@ class CLIP(nn.Module):
         x = self.token_embedding(token)
         return x
 
-    def encode_text(self, embedding_vector, token):
+    def encode_text(self, embedding_vector, eot_indices):
         # x = self.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]
         """
             learnable positional embedding
@@ -373,8 +373,8 @@ class CLIP(nn.Module):
         x = x.permute(1, 0, 2)  # (B, S, D)
         x = self.ln_final(x).type(self.dtype)
 
-        # take features from the eot embedding (eot_token is the highest number in each sequence)
-        x = x[torch.arange(x.shape[0]), token.argmax(dim=-1)] @ self.text_projection
+        # take features from the eot embedding
+        x = x[torch.arange(x.shape[0], device=x.device), eot_indices] @ self.text_projection
 
         return x
 
