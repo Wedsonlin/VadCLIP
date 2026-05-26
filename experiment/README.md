@@ -37,13 +37,16 @@ score = alpha * branch1 + (1 - alpha) * branch2
 
 ## 3. LGT-Adapter and Loss Ablations
 
-Train separate checkpoints for the seven LGT-Adapter variants in Table 5:
+Train the seven LGT-Adapter variants in Table 5. Each variant runs five seeds by default and writes
+per-seed rows plus a summary row with mean, variance, standard deviation, and 95% confidence intervals:
 
 ```bash
 python experiment/scripts/run_ablation.py --config experiment/configs/xd_ablation.yaml
 ```
 
-This is the paper-style adapter ablation. It trains one model per variant, so it costs about seven full XD training runs.
+This is the paper-style adapter ablation. It now costs about 35 full XD training runs by default. Model
+parameters are not saved by default; pass `--save-checkpoints` to write seed-specific checkpoints such as
+`xd_adapter_lgt_adapter_seed234.pth`.
 
 Evaluate trained adapter-variant checkpoints with their matching model structure:
 
@@ -67,13 +70,14 @@ python experiment/scripts/run_ablation.py \
 
 Latency rows report mean/std/median forward time and throughput for fixed dummy inputs. They measure compute cost, not detection performance.
 
-Run loss-function ablations by training separate models:
+Run loss-function ablations with the same five-seed protocol:
 
 ```bash
 python experiment/scripts/run_ablation.py --config experiment/configs/xd_ablation.yaml --skip-adapter-ablations --train-loss-ablations
 ```
 
-Loss variants include `full`, `bce_nce`, `bce_cts`, and `nce_cts`. Checkpoints are saved under `experiment/results/checkpoints/`.
+Loss variants include `full`, `bce_nce`, `bce_cts`, and `nce_cts`. Model parameters are not saved by
+default; pass `--save-checkpoints` to write files such as `xd_loss_bce_nce_seed234.pth`.
 
 ## 4. Prompt Ablations
 
@@ -84,8 +88,8 @@ python experiment/scripts/run_prompt_hyperparams.py --config experiment/configs/
 ```
 
 The default run trains `no_prompt` plus `middle` and `end` placements for total learnable prompt lengths
-`4,6,8,10,12,14,16,18,20`. Checkpoints are saved under `experiment/results/checkpoints/` as
-`xd_prompt_<variant>.pth`.
+`4,6,8,10,12,14,16,18,20`. Model parameters are not saved by default; pass `--save-checkpoints`
+to write files such as `xd_prompt_middle_10_seed234.pth`.
 
 Useful overrides:
 
@@ -99,16 +103,21 @@ python experiment/scripts/run_prompt_hyperparams.py \
 
 ## 5. Qualitative Visualization
 
-Export per-frame score traces and SVG plots for selected test videos:
+Export per-frame score traces and paper-style coarse anomaly score PNGs for selected test videos.
+`--video-root` must point to the original XD-Violence test videos so the script can sample thumbnails.
+It may contain either full movies, using the clip timestamps in the feature filename, or pre-cut clip videos:
 
 ```bash
-python experiment/scripts/run_visualize_cases.py --config experiment/configs/xd_baseline.yaml --indices 0,1,2,3,4
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_baseline.yaml \
+  --video-root D:/Datasets/XD-Violence/test/videos \
+  --indices 0,1,2,3,4
 ```
 
 Outputs are written to `experiment/results/figures/`:
 
 - `.csv`: frame, Branch 1 score, Branch 2 score, ground-truth mask.
-- `.svg`: score curves with ground-truth anomaly regions highlighted.
+- `.png`: sampled video thumbnails plus Branch 1 / Branch 2 score curves with ground-truth anomaly regions highlighted.
 
 ## Notes
 

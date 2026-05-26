@@ -32,6 +32,8 @@ latency_iters: 100
 latency_batch_size: 1
 checkpoint_dir: experiment/results/checkpoints
 seed: 234
+num_seeds: 5
+save_checkpoints: false
 experiment_name: xd_ablation
 metrics_csv: experiment/results/metrics.csv
 metrics_json: experiment/results/xd_ablation.json

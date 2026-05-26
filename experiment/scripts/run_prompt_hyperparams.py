@@ -99,6 +99,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--num-seeds", type=int, default=None, help="Number of sequential seeds to run per variant.")
     parser.add_argument("--seeds", type=str, default=None, help="Comma list of explicit seeds to run per variant.")
+    parser.add_argument("--save-checkpoints", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--checkpoint-dir", type=str, default=None)
     return parser.parse_args()
 
@@ -175,6 +176,9 @@ def build_train_settings(args: argparse.Namespace, config: dict) -> dict:
         "seed": base_seed,
         "num_seeds": num_seeds,
         "seeds": build_seed_list(base_seed, num_seeds, seeds_value),
+        "save_checkpoints": args.save_checkpoints
+        if args.save_checkpoints is not None
+        else bool(config_get(config, "save_checkpoints", False)),
         "checkpoint_dir": args.checkpoint_dir or config_get(config, "checkpoint_dir", "experiment/results/checkpoints"),
     }
 
@@ -221,6 +225,7 @@ def train_one_prompt_variant(base_settings: dict, train_settings: dict, prompt_v
     best_ap = -1.0
     best_state = None
     best_metrics: dict[str, float] = {}
+    checkpoint = ""
 
     try:
         for epoch in range(int(train_settings["max_epoch"])):
@@ -286,12 +291,14 @@ def train_one_prompt_variant(base_settings: dict, train_settings: dict, prompt_v
             if current_ap > best_ap:
                 best_ap = current_ap
                 best_metrics = metrics
-                best_state = copy.deepcopy(model.state_dict())
+                if bool(train_settings["save_checkpoints"]):
+                    best_state = copy.deepcopy(model.state_dict())
 
-        checkpoint_dir = resolve_path(train_settings["checkpoint_dir"])
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        checkpoint_path = checkpoint_dir / f"xd_prompt_{variant}_seed{seed}.pth"
-        if best_state is not None:
+        if bool(train_settings["save_checkpoints"]) and best_state is not None:
+            checkpoint_dir = resolve_path(train_settings["checkpoint_dir"])
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            checkpoint_path = checkpoint_dir / f"xd_prompt_{variant}_seed{seed}.pth"
+            checkpoint = relative_checkpoint_path(checkpoint_path)
             torch.save(best_state, checkpoint_path)
     finally:
         logger.finish()
@@ -308,7 +315,7 @@ def train_one_prompt_variant(base_settings: dict, train_settings: dict, prompt_v
         "prompt_placement": prompt_variant["prompt_placement"],
         "prompt_prefix": prompt_variant["prompt_prefix"],
         "prompt_postfix": prompt_variant["prompt_postfix"],
-        "checkpoint": relative_checkpoint_path(checkpoint_path),
+        "checkpoint": checkpoint,
         **best_metrics,
     }
 
