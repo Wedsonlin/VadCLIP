@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import copy
+import math
+import statistics
 
 import torch
 from torch.optim.lr_scheduler import MultiStepLR
@@ -22,6 +24,53 @@ from common import (
 )
 from run_ablation import build_train_loader, loss_for_variant, setup_seed
 from utils.tools import get_batch_label_vector
+
+
+METRIC_KEYS = (
+    "branch1_auc",
+    "branch1_ap",
+    "branch2_auc",
+    "branch2_ap",
+    "mAP@0.1",
+    "mAP@0.2",
+    "mAP@0.3",
+    "mAP@0.4",
+    "mAP@0.5",
+    "average_mAP",
+)
+
+T_CRITICAL_95 = {
+    1: 12.706,
+    2: 4.303,
+    3: 3.182,
+    4: 2.776,
+    5: 2.571,
+    6: 2.447,
+    7: 2.365,
+    8: 2.306,
+    9: 2.262,
+    10: 2.228,
+    11: 2.201,
+    12: 2.179,
+    13: 2.16,
+    14: 2.145,
+    15: 2.131,
+    16: 2.12,
+    17: 2.11,
+    18: 2.101,
+    19: 2.093,
+    20: 2.086,
+    21: 2.08,
+    22: 2.074,
+    23: 2.069,
+    24: 2.064,
+    25: 2.06,
+    26: 2.056,
+    27: 2.052,
+    28: 2.048,
+    29: 2.045,
+    30: 2.042,
+}
 
 
 def parse_int_list(value) -> list[int]:
@@ -48,6 +97,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scheduler-rate", type=float, default=None)
     parser.add_argument("--scheduler-milestones", type=str, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--num-seeds", type=int, default=None, help="Number of sequential seeds to run per variant.")
+    parser.add_argument("--seeds", type=str, default=None, help="Comma list of explicit seeds to run per variant.")
     parser.add_argument("--checkpoint-dir", type=str, default=None)
     return parser.parse_args()
 
@@ -91,14 +142,28 @@ def build_prompt_variants(lengths: list[int], placements: list[str]) -> list[dic
     return variants
 
 
+def build_seed_list(base_seed: int, num_seeds: int, seeds_value) -> list[int]:
+    if seeds_value is not None:
+        seeds = parse_int_list(seeds_value)
+        if not seeds:
+            raise ValueError("At least one seed must be provided when --seeds is set.")
+        return seeds
+    if num_seeds <= 0:
+        raise ValueError("num_seeds must be positive.")
+    return [base_seed + offset for offset in range(num_seeds)]
+
+
 def build_train_settings(args: argparse.Namespace, config: dict) -> dict:
+    base_seed = args.seed if args.seed is not None else int(config_get(config, "seed", 234))
+    num_seeds = args.num_seeds if args.num_seeds is not None else int(config_get(config, "num_seeds", 5))
+    seeds_value = args.seeds if args.seeds is not None else config_get(config, "seeds", None)
     return {
         "train_list": args.train_list or config_get(config, "train_list", "list/xd_CLIP_rgb.csv"),
         "train_batch_size": args.train_batch_size
         if args.train_batch_size is not None
         else int(config_get(config, "train_batch_size", 64)),
-        "max_epoch": args.max_epoch if args.max_epoch is not None else int(config_get(config, "max_epoch", 20)),
-        "lr": args.lr if args.lr is not None else float(config_get(config, "lr", 2e-5)),
+        "max_epoch": args.max_epoch if args.max_epoch is not None else int(config_get(config, "max_epoch", 10)),
+        "lr": args.lr if args.lr is not None else float(config_get(config, "lr", 1e-5)),
         "scheduler_rate": args.scheduler_rate
         if args.scheduler_rate is not None
         else float(config_get(config, "scheduler_rate", 0.1)),
@@ -107,7 +172,9 @@ def build_train_settings(args: argparse.Namespace, config: dict) -> dict:
             if args.scheduler_milestones is not None
             else config_get(config, "scheduler_milestones", [3, 6, 10])
         ),
-        "seed": args.seed if args.seed is not None else int(config_get(config, "seed", 234)),
+        "seed": base_seed,
+        "num_seeds": num_seeds,
+        "seeds": build_seed_list(base_seed, num_seeds, seeds_value),
         "checkpoint_dir": args.checkpoint_dir or config_get(config, "checkpoint_dir", "experiment/results/checkpoints"),
     }
 
@@ -123,9 +190,10 @@ def train_one_prompt_variant(base_settings: dict, train_settings: dict, prompt_v
     from utils.logger import Logger
 
     variant = prompt_variant["variant"]
-    print(f"Training prompt ablation: {variant}")
+    seed = int(train_settings["seed"])
+    print(f"Training prompt ablation: {variant} seed={seed}")
 
-    setup_seed(int(train_settings["seed"]))
+    setup_seed(seed)
 
     settings = dict(base_settings)
     settings["prompt_prefix"] = int(prompt_variant["prompt_prefix"])
@@ -137,7 +205,7 @@ def train_one_prompt_variant(base_settings: dict, train_settings: dict, prompt_v
     train_loader = build_train_loader(settings, train_settings)
     logger = Logger(
         project="WSAVD_prompt_variants",
-        name=f"{settings['experiment_name']}_prompt_{variant}",
+        name=f"{settings['experiment_name']}_prompt_{variant}_seed{seed}",
     )
     model = build_xd_model(eval_settings)
     model.to(settings["device"])
@@ -192,7 +260,7 @@ def train_one_prompt_variant(base_settings: dict, train_settings: dict, prompt_v
 
                 if step % 50 == 0:
                     print(
-                        f"variant={variant} epoch={epoch + 1} step={step} "
+                        f"variant={variant} seed={seed} epoch={epoch + 1} step={step} "
                         f"loss={float(loss.detach().cpu()):.4f} "
                         f"bce={values['bce_loss']:.4f} "
                         f"nce={values['nce_loss']:.4f} "
@@ -209,7 +277,7 @@ def train_one_prompt_variant(base_settings: dict, train_settings: dict, prompt_v
                 }
             )
             print(
-                f"variant={variant} epoch={epoch + 1} "
+                f"variant={variant} seed={seed} epoch={epoch + 1} "
                 f"branch1_ap={metrics['branch1_ap']:.6f}, "
                 f"branch2_ap={metrics['branch2_ap']:.6f}, "
                 f"average_mAP={metrics['average_mAP']:.6f}"
@@ -222,7 +290,7 @@ def train_one_prompt_variant(base_settings: dict, train_settings: dict, prompt_v
 
         checkpoint_dir = resolve_path(train_settings["checkpoint_dir"])
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        checkpoint_path = checkpoint_dir / f"xd_prompt_{variant}.pth"
+        checkpoint_path = checkpoint_dir / f"xd_prompt_{variant}_seed{seed}.pth"
         if best_state is not None:
             torch.save(best_state, checkpoint_path)
     finally:
@@ -235,6 +303,7 @@ def train_one_prompt_variant(base_settings: dict, train_settings: dict, prompt_v
         "experiment": settings["experiment_name"],
         "ablation_type": "prompt_train",
         "variant": variant,
+        "seed": seed,
         "prompt_length": prompt_variant["prompt_length"],
         "prompt_placement": prompt_variant["prompt_placement"],
         "prompt_prefix": prompt_variant["prompt_prefix"],
@@ -242,6 +311,50 @@ def train_one_prompt_variant(base_settings: dict, train_settings: dict, prompt_v
         "checkpoint": relative_checkpoint_path(checkpoint_path),
         **best_metrics,
     }
+
+
+def ci95_half_width(values: list[float]) -> float:
+    if len(values) <= 1:
+        return 0.0
+    std = statistics.stdev(values)
+    t_value = T_CRITICAL_95.get(len(values) - 1, 1.96)
+    return float(t_value * std / math.sqrt(len(values)))
+
+
+def metric_values(rows: list[dict], key: str) -> list[float]:
+    values = []
+    for row in rows:
+        value = row.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            values.append(float(value))
+    return values
+
+
+def summarize_prompt_variant(rows: list[dict], prompt_variant: dict, seeds: list[int], experiment_name: str) -> dict:
+    summary = {
+        "experiment": experiment_name,
+        "ablation_type": "prompt_train_summary",
+        "variant": prompt_variant["variant"],
+        "prompt_length": prompt_variant["prompt_length"],
+        "prompt_placement": prompt_variant["prompt_placement"],
+        "prompt_prefix": prompt_variant["prompt_prefix"],
+        "prompt_postfix": prompt_variant["prompt_postfix"],
+        "seed_count": len(rows),
+        "seeds": ",".join(str(seed) for seed in seeds),
+    }
+    for key in METRIC_KEYS:
+        values = metric_values(rows, key)
+        if not values:
+            continue
+        mean = float(statistics.mean(values))
+        std = float(statistics.stdev(values)) if len(values) > 1 else 0.0
+        half_width = ci95_half_width(values)
+        summary[f"{key}_mean"] = mean
+        summary[f"{key}_std"] = std
+        summary[f"{key}_ci95_low"] = mean - half_width
+        summary[f"{key}_ci95_high"] = mean + half_width
+        summary[f"{key}_ci95_half_width"] = half_width
+    return summary
 
 
 def main() -> None:
@@ -264,9 +377,22 @@ def main() -> None:
 
     rows: list[dict] = []
     for prompt_variant in prompt_variants:
-        row = train_one_prompt_variant(base_settings, train_settings, prompt_variant)
-        print_metrics(row)
-        rows.append(row)
+        variant_rows: list[dict] = []
+        for seed in train_settings["seeds"]:
+            seed_train_settings = dict(train_settings)
+            seed_train_settings["seed"] = int(seed)
+            row = train_one_prompt_variant(base_settings, seed_train_settings, prompt_variant)
+            print_metrics(row)
+            variant_rows.append(row)
+            rows.append(row)
+        summary_row = summarize_prompt_variant(
+            variant_rows,
+            prompt_variant,
+            [int(seed) for seed in train_settings["seeds"]],
+            base_settings["experiment_name"],
+        )
+        print_metrics(summary_row)
+        rows.append(summary_row)
 
     append_metrics_csv(base_settings["metrics_csv"], rows)
     if base_settings["metrics_json"]:
