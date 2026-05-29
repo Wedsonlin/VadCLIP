@@ -101,13 +101,21 @@ class CLIPVAD(nn.Module):
             attn_mask=self.build_attention_mask(self.attn_window)
         )
 
-        width = int(visual_width / 2)
+        # width = int(visual_width / 2)
+        # self.gc1 = GraphConvolution(visual_width, width, residual=True)
+        # self.gc2 = GraphConvolution(width, width, residual=True)
+        # self.gc3 = GraphConvolution(visual_width, width, residual=True)
+        # self.gc4 = GraphConvolution(width, width, residual=True)
+        # self.linear = nn.Linear(visual_width, visual_width) # should be unbiased?
+
+        width = visual_width
         self.gc1 = GraphConvolution(visual_width, width, residual=True)
-        self.gc2 = GraphConvolution(width, width, residual=True)
+        # self.gc2 = GraphConvolution(width, visual_width, residual=True)
         self.gc3 = GraphConvolution(visual_width, width, residual=True)
-        self.gc4 = GraphConvolution(width, width, residual=True)
+        # self.gc4 = GraphConvolution(width, visual_width, residual=True)
+        self.linear = nn.Linear(width*2, visual_width) # should be unbiased?
+        
         self.disAdj = DistanceAdj()
-        self.linear = nn.Linear(visual_width, visual_width) # should be unbiased?
         self.gelu = QuickGELU()
 
         self.mlp1 = nn.Sequential(OrderedDict([
@@ -183,14 +191,15 @@ class CLIPVAD(nn.Module):
         # two layer GCNs with cosine similarity adjacency matrix
         cos_sim_adj = self.cos_sim_adj(x, lengths)
         x1_h = self.gelu(self.gc1(x, cos_sim_adj))
-        x1 = self.gelu(self.gc2(x1_h, cos_sim_adj))
+        # x1 = self.gelu(self.gc2(x1_h, cos_sim_adj))
         
         # two layer GCNs with distance adjacency matrix
         dis_adj = self.disAdj(x.shape[0], x.shape[1])
         x2_h = self.gelu(self.gc3(x, dis_adj))
-        x2 = self.gelu(self.gc4(x2_h, dis_adj))
+        # x2 = self.gelu(self.gc4(x2_h, dis_adj))
 
-        x = torch.cat((x1, x2), 2)
+        # x = torch.cat((x1, x2), 2)
+        x = torch.cat((x1_h, x2_h), 2)
         x = self.linear(x)
 
         return x

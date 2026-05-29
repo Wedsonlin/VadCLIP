@@ -51,28 +51,32 @@ class AdapterAblationCLIPVAD(CLIPVAD):
 
     def _gcn_features(self, x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
         cos_sim_adj = self.cos_sim_adj(x, lengths)
-        x1_h = self.gelu(self.gc1(x, cos_sim_adj))
-        x1 = self.gelu(self.gc2(x1_h, cos_sim_adj))
-
         dis_adj = self.disAdj(x.shape[0], x.shape[1]).to(x.device)
-        x2_h = self.gelu(self.gc3(x, dis_adj))
-        x2 = self.gelu(self.gc4(x2_h, dis_adj))
+        
+        # x1_h = self.gelu(self.gc1(x, cos_sim_adj))
+        # x1 = self.gelu(self.gc2(x1_h, cos_sim_adj))
+
+        # x2_h = self.gelu(self.gc3(x, dis_adj))
+        # x2 = self.gelu(self.gc4(x2_h, dis_adj))
+
+        x1 = self.gelu(self.gc1(x, cos_sim_adj))
+        x2 = self.gelu(self.gc3(x, dis_adj))
 
         return torch.cat((x1, x2), dim=2)
 
     def encode_video(self, images, padding_mask, lengths):
         images = self._position_encoded_video(images)
         if self.variant == "baseline":
-            return self.linear(images)
+            return images
         if self.variant == "global_tf":
-            return self.linear(self._transformer_features(images, self.global_temporal))
+            return self._transformer_features(images, self.global_temporal)
         if self.variant == "local_tf":
-            return self.linear(self._transformer_features(images, self.temporal))
+            return self._transformer_features(images, self.temporal)
         if self.variant == "only_gcn":
             return self.linear(self._gcn_features(images, lengths))
         if self.variant == "local_global_tf":
             x = self._transformer_features(images, self.temporal)
-            return self.linear(self._transformer_features(x, self.global_temporal))
+            return self._transformer_features(x, self.global_temporal)
         if self.variant == "global_tf_gcn":
             x = self._transformer_features(images, self.global_temporal)
             return self.linear(self._gcn_features(x, lengths))
