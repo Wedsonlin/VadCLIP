@@ -53,14 +53,14 @@ class AdapterAblationCLIPVAD(CLIPVAD):
         cos_sim_adj = self.cos_sim_adj(x, lengths)
         dis_adj = self.disAdj(x.shape[0], x.shape[1]).to(x.device)
         
-        # x1_h = self.gelu(self.gc1(x, cos_sim_adj))
-        # x1 = self.gelu(self.gc2(x1_h, cos_sim_adj))
+        x1_h = self.gelu(self.gc1(x, cos_sim_adj))
+        x1 = self.gelu(self.gc2(x1_h, cos_sim_adj))
 
-        # x2_h = self.gelu(self.gc3(x, dis_adj))
-        # x2 = self.gelu(self.gc4(x2_h, dis_adj))
+        x2_h = self.gelu(self.gc3(x, dis_adj))
+        x2 = self.gelu(self.gc4(x2_h, dis_adj))
 
-        x1 = self.gelu(self.gc1(x, cos_sim_adj))
-        x2 = self.gelu(self.gc3(x, dis_adj))
+        # x1 = self.gelu(self.gc1(x, cos_sim_adj))
+        # x2 = self.gelu(self.gc3(x, dis_adj))
 
         return torch.cat((x1, x2), dim=2)
 

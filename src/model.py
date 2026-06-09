@@ -101,19 +101,17 @@ class CLIPVAD(nn.Module):
             attn_mask=self.build_attention_mask(self.attn_window)
         )
 
-        # width = int(visual_width / 2)
-        # self.gc1 = GraphConvolution(visual_width, width, residual=True)
-        # self.gc2 = GraphConvolution(width, width, residual=True)
-        # self.gc3 = GraphConvolution(visual_width, width, residual=True)
-        # self.gc4 = GraphConvolution(width, width, residual=True)
-        # self.linear = nn.Linear(visual_width, visual_width) # should be unbiased?
-
-        width = visual_width
+        width = int(visual_width / 2)
         self.gc1 = GraphConvolution(visual_width, width, residual=True)
-        # self.gc2 = GraphConvolution(width, visual_width, residual=True)
+        self.gc2 = GraphConvolution(width, width, residual=True)
         self.gc3 = GraphConvolution(visual_width, width, residual=True)
-        # self.gc4 = GraphConvolution(width, visual_width, residual=True)
-        self.linear = nn.Linear(width*2, visual_width) # should be unbiased?
+        self.gc4 = GraphConvolution(width, width, residual=True)
+        self.linear = nn.Linear(visual_width, visual_width) # should be unbiased?
+
+        # width = visual_width
+        # self.gc1 = GraphConvolution(visual_width, width, residual=True)
+        # self.gc3 = GraphConvolution(visual_width, width, residual=True)
+        # self.linear = nn.Linear(width*2, visual_width)
         
         self.disAdj = DistanceAdj()
         self.gelu = QuickGELU()
