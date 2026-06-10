@@ -46,7 +46,9 @@ class AdapterAblationCLIPVAD(CLIPVAD):
 
     def _transformer_features(self, images: torch.Tensor, transformer: Transformer) -> torch.Tensor:
         x = images.permute(1, 0, 2)
+        x_res = x
         x, _ = transformer((x, None))
+        x = x_res + x
         return x.permute(1, 0, 2)
 
     def _gcn_features(self, x: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
