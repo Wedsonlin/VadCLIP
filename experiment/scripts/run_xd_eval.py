@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 
+from ablation_models import AdapterAblationCLIPVAD
 from common import (
     add_xd_runtime_args,
     append_metrics_csv,
@@ -18,6 +19,12 @@ from common import (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate VadCLIP on XD-Violence.")
     add_xd_runtime_args(parser)
+    parser.add_argument(
+        "--adapter-variant",
+        type=str,
+        default=None,
+        help="Build AdapterAblationCLIPVAD with this variant. Omit for base CLIPVAD.",
+    )
     return parser.parse_args()
 
 
@@ -27,8 +34,11 @@ def main() -> None:
     config = load_config(args.config)
     settings = xd_settings(args, config)
 
-    # build model with config settings
-    model = build_xd_model(settings)
+    if args.adapter_variant:
+        model = build_xd_model(settings, AdapterAblationCLIPVAD, variant=args.adapter_variant)
+    else:
+        model = build_xd_model(settings)
+
     load_model_weights(
         model,
         settings["model_path"],
@@ -37,7 +47,14 @@ def main() -> None:
     )
 
     metrics, _ = evaluate_xd_model(model, settings)
-    row = {"experiment": settings["experiment_name"], **metrics}
+    if args.adapter_variant:
+        row = {
+            "experiment": settings["experiment_name"],
+            "adapter_variant": args.adapter_variant,
+            **metrics,
+        }
+    else:
+        row = {"experiment": settings["experiment_name"], **metrics}
     print_metrics(row)
 
     append_metrics_csv(settings["metrics_csv"], [row])

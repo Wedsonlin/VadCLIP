@@ -51,13 +51,14 @@ parameters are not saved by default; pass `--save-checkpoints` to write seed-spe
 Evaluate trained adapter-variant checkpoints with their matching model structure:
 
 ```bash
-python experiment/scripts/run_ablation.py \
+python experiment/scripts/run_xd_eval.py \
   --config experiment/configs/xd_ablation.yaml \
-  --skip-adapter-ablations \
-  --eval-adapter-checkpoints
+  --adapter-variant lgt_adapter \
+  --model-path experiment/results/checkpoints/xd_adapter_lgt_adapter_seed234.pth \
+  --experiment-name xd_adapter_lgt_adapter_seed234
 ```
 
-To evaluate one variant, pass `--adapter-variants lgt_adapter`. Adapter checkpoints cannot be loaded by `run_xd_eval.py` because that script builds the base `CLIPVAD` model.
+Pass `--adapter-variant` to build the matching `AdapterAblationCLIPVAD` architecture before loading the checkpoint.
 
 Benchmark adapter inference latency without dataset I/O:
 
