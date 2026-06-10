@@ -25,7 +25,6 @@ from common import (
     config_get,
     evaluate_xd_model,
     load_config,
-    load_model_weights,
     print_metrics,
     resolve_path,
     write_json,
@@ -159,8 +158,6 @@ def parse_args() -> argparse.Namespace:
     add_xd_runtime_args(parser)
     parser.add_argument("--adapter-variants", type=str, default=None)
     parser.add_argument("--skip-adapter-ablations", action="store_true")
-    parser.add_argument("--eval-adapter-checkpoints", action="store_true")
-    parser.add_argument("--adapter-checkpoint-template", type=str, default=None)
     parser.add_argument("--benchmark-adapter-latency", action="store_true")
     parser.add_argument("--latency-warmup-iters", type=int, default=None)
     parser.add_argument("--latency-iters", type=int, default=None)
@@ -529,48 +526,6 @@ def train_one_loss_variant(settings: dict, train_settings: dict, variant: str) -
     }
 
 
-def adapter_checkpoint_path(train_settings: dict, checkpoint_template: str, variant: str) -> Path:
-    formatted = checkpoint_template.format(variant=variant)
-    path = Path(formatted)
-    if path.is_absolute() or path.parent != Path("."):
-        return resolve_path(path)
-    return resolve_path(train_settings["checkpoint_dir"]) / formatted
-
-
-def evaluate_adapter_checkpoints(
-    settings: dict,
-    train_settings: dict,
-    variants: list[str],
-    checkpoint_template: str,
-) -> list[dict]:
-    rows = []
-    for variant in variants:
-        checkpoint_path = adapter_checkpoint_path(train_settings, checkpoint_template, variant)
-        print(f"Evaluating adapter checkpoint: variant={variant} checkpoint={checkpoint_path}")
-        model = build_xd_model(settings, AdapterAblationCLIPVAD, variant=variant)
-        load_model_weights(
-            model,
-            checkpoint_path,
-            settings["device"],
-            strict=bool(settings["strict_load"]),
-        )
-        metrics, _ = evaluate_xd_model(model, settings)
-        try:
-            checkpoint_display = str(checkpoint_path.relative_to(PROJECT_ROOT))
-        except ValueError:
-            checkpoint_display = str(checkpoint_path)
-        row = {
-            "experiment": settings["experiment_name"],
-            "ablation_type": "adapter_eval",
-            "variant": variant,
-            "checkpoint": checkpoint_display,
-            **metrics,
-        }
-        print_metrics(row)
-        rows.append(row)
-    return rows
-
-
 def synchronize_if_cuda(device: str | torch.device) -> None:
     if str(device).startswith("cuda") and torch.cuda.is_available():
         torch.cuda.synchronize()
@@ -698,11 +653,6 @@ def main() -> None:
         else bool(config_get(config, "save_checkpoints", False)),
         "checkpoint_dir": args.checkpoint_dir or config_get(config, "checkpoint_dir", "experiment/results/checkpoints"),
     }
-    adapter_checkpoint_template = (
-        args.adapter_checkpoint_template
-        if args.adapter_checkpoint_template is not None
-        else str(config_get(config, "adapter_checkpoint_template", "xd_adapter_{variant}.pth"))
-    )
     latency_settings = {
         "benchmark_adapter_latency": bool(
             args.benchmark_adapter_latency or config_get(config, "benchmark_adapter_latency", False)
@@ -744,16 +694,6 @@ def main() -> None:
             )
             print_metrics(summary_row)
             rows.append(summary_row)
-
-    if args.eval_adapter_checkpoints:
-        rows.extend(
-            evaluate_adapter_checkpoints(
-                settings,
-                train_settings,
-                adapter_variants,
-                adapter_checkpoint_template,
-            )
-        )
 
     if latency_settings["benchmark_adapter_latency"]:
         rows.extend(
