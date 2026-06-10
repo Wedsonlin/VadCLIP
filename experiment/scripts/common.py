@@ -378,10 +378,25 @@ def append_metrics_csv(path: str | Path, rows: list[dict[str, Any]]) -> None:
 
     existing = output_path.exists() and output_path.stat().st_size > 0
     if existing:
-        with output_path.open("r", newline="", encoding="utf-8") as handle:
-            reader = csv.DictReader(handle)
-            old_fieldnames = reader.fieldnames or []
-            old_rows = list(reader)
+        old_fieldnames: list[str] = []
+        old_rows: list[dict[str, Any]] = []
+        for encoding in ("utf-8-sig", "utf-16", "utf-8"):
+            try:
+                with output_path.open("r", newline="", encoding=encoding) as handle:
+                    reader = csv.DictReader(handle)
+                    old_fieldnames = reader.fieldnames or []
+                    old_rows = list(reader)
+                break
+            except UnicodeDecodeError:
+                continue
+        if not old_fieldnames and not old_rows:
+            raise UnicodeDecodeError(
+                "utf-8",
+                b"",
+                0,
+                1,
+                f"Could not decode metrics CSV at {output_path}",
+            )
         for key in old_fieldnames:
             if key not in fieldnames:
                 fieldnames.insert(0, key)

@@ -104,11 +104,17 @@ python experiment/scripts/run_prompt_hyperparams.py \
 
 ## 5. Qualitative Visualization
 
-Export per-frame fine-grained category alignment score traces and paper-style coarse score PNGs
-grouped by XD category. By default, the script runs inference on the full XD test set, ranks videos
-within each category, and exports the top `3` highest-scoring cases per category (up to 21 figures total).
+Export per-frame score traces and paper-style PNG figures grouped by XD fine-grained category.
+By default, the script runs inference on the full XD test set, ranks videos within each category,
+and exports the top `3` highest-scoring cases per category (up to 21 figures total).
+
 `--video-root` must point to the original XD-Violence test videos so the script can sample thumbnails.
 It may contain either full movies, using the clip timestamps in the feature filename, or pre-cut clip videos.
+
+By default the script builds the base `CLIPVAD` model and loads `model_path` from the config
+(typically `model/model_xd.pth` via `xd_baseline.yaml`). To visualize an adapter ablation checkpoint,
+pass `--adapter-variant` so the script builds the matching `AdapterAblationCLIPVAD` architecture
+before loading weights (same pattern as `run_xd_eval.py`).
 
 Fine-grained category map:
 
@@ -124,24 +130,43 @@ Fine-grained category map:
 | G    | explosion    |
 
 
-Score curve and ranking metric:
+Pre-filter and ranking:
 
-- Figures and `.csv` always plot the alignment probability of the target fine-grained class in each
-  subdirectory (e.g. `G_explosion/` uses explosion/G scores, `A_normal/` uses normal/A scores).
-- Ranking score source (`--rank-score`, default `abnormal`):
-  - `abnormal`: rank by Branch 2 scores.
-  - `category`: rank by the alignment probability of the target fine-grained class (e.g. fighting for `B1`).
-- Ranking metric (`--rank-metric`, default `auc`):
-  - `auc`: frame-level AUC between the selected ranking score and the ground-truth mask.
-  - `f1`: F1 at threshold 0.5.
-  - `ap`: frame-level AP.
-- Normal category (`A`):
+- `--max-anomaly-ratio` (default `0.8`): skip videos whose **anomaly frame ratio** exceeds this threshold before ranking. Pure normal clips (`label=A`) use an all-zero anomaly mask and are not filtered by this rule.
+- `--rank-score` (default `abnormal`) controls which score is used to **select** top-k cases within each category.
+  - `abnormal`: Branch 2 coarse anomaly scores.
+  - `category`: fine-grained alignment probability of the target class (e.g. fighting for `B1`).
+- `--plot-score` (default `category`) controls the **green curve** drawn in each PNG:
+  - `category`: fine-grained class alignment (e.g. `fighting (B1)` in `B1_fighting/`).
+  - `abnormal`: coarse Branch 2 anomaly score (`Branch 2 (abnormal)`).
+- `--rank-metric` (default `auc`): ranking metric — `auc`, `f1` (F1@0.5), or `ap`.
+- Normal category (`A`) when ranking:
   - `abnormal`: `1 - mean(abnormal_score)`.
   - `category`: `mean(normal_class_probability)`.
+
+Figure layout and ground truth:
+
+- PNGs have no long title bar at the top; the score label (e.g. `fighting (B1)`) is drawn **above** the chart, outside the plot area.
+- `A_normal/` figures use a white chart background with **no pink GT overlay** (for pure normal clips, dataset intervals mark normal segments, not anomalies).
+- Other categories highlight annotated anomaly intervals in pink.
+- `.csv` `ground_truth` is always an **anomaly mask** (`1` = anomalous frame); pure normal videos are all `0`.
+
+Baseline checkpoint:
 
 ```bash
 python experiment/scripts/run_visualize_cases.py \
   --config experiment/configs/xd_baseline.yaml \
+  --video-root H:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv
+```
+
+Adapter checkpoint (`lgt_adapter` example):
+
+```bash
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_ablation.yaml \
+  --adapter-variant lgt_adapter \
+  --model-path model/xd_adapter_lgt_adapter_seed234.pth \
   --video-root H:/Datasets/XD-Violence/test/videos \
   --test-list list/xd_CLIP_rgbtest_local.csv
 ```
@@ -170,6 +195,15 @@ python experiment/scripts/run_visualize_cases.py \
   --test-list list/xd_CLIP_rgbtest_local.csv \
   --rank-score category
 
+# Plot coarse Branch 2 scores in the green curve (ranking still uses --rank-score default)
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_ablation.yaml \
+  --adapter-variant lgt_adapter \
+  --model-path model/xd_adapter_lgt_adapter_seed234.pth \
+  --video-root H:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv \
+  --plot-score abnormal
+
 # Rank only within a subset of test-video indices
 python experiment/scripts/run_visualize_cases.py \
   --config experiment/configs/xd_baseline.yaml \
@@ -192,9 +226,9 @@ experiment/results/figures/
   visualization_summary.json
 ```
 
-- `.csv`: `frame`, `category_score`, `ground_truth`.
-- `.png`: sampled video thumbnails plus the target category alignment score curve with ground-truth anomaly regions highlighted.
-- `visualization_summary.json`: cases grouped by category code, with `score_type` (`category_alignment`), `rank_score`, `rank_metric`, `metric`, `metric_type` (e.g. `abnormal_auc`, `category_auc`, `mean_normal_prob`), source feature path, and output file paths.
+- `.csv`: `frame`, `category_score`, `abnormal_score`, `ground_truth` (anomaly mask; both score traces exported; PNG follows `--plot-score`).
+- `.png`: sampled video thumbnails plus one green score curve (`--plot-score`); anomaly GT overlay on non-`A` categories only.
+- `visualization_summary.json`: top-level `model_path`, `adapter_variant` (null for base `CLIPVAD`), `rank_score`, `rank_metric`, `plot_score`, and `max_anomaly_ratio`; per-category lists with `score_type`, `plot_score`, `rank_score`, `rank_metric`, `metric`, `metric_type`, source feature path, and output file paths.
 
 ## Notes
 

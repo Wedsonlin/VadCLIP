@@ -11,6 +11,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from sklearn.metrics import f1_score
 
+from ablation_models import AdapterAblationCLIPVAD
 from common import (
     XD_LABEL_MAP,
     add_xd_runtime_args,
@@ -29,6 +30,7 @@ from common import (
 CATEGORY_CLASS_INDEX = {code: idx for idx, code in enumerate(XD_LABEL_MAP)}
 RANK_METRICS = ("auc", "f1", "ap")
 RANK_SCORES = ("abnormal", "category")
+PLOT_SCORES = ("category", "abnormal")
 
 
 def parse_indices(value: str | None) -> list[int] | None:
@@ -143,16 +145,25 @@ def write_trace_csv(
             )
 
 
-def write_category_trace_csv(path: Path, category_scores: np.ndarray, gt: np.ndarray) -> None:
+def write_figure_trace_csv(
+    path: Path,
+    category_scores: np.ndarray,
+    abnormal_scores: np.ndarray,
+    gt: np.ndarray,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["frame", "category_score", "ground_truth"])
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["frame", "category_score", "abnormal_score", "ground_truth"],
+        )
         writer.writeheader()
         for frame in range(len(gt)):
             writer.writerow(
                 {
                     "frame": frame,
                     "category_score": float(category_scores[frame]),
+                    "abnormal_score": float(abnormal_scores[frame]),
                     "ground_truth": int(gt[frame]),
                 }
             )
@@ -160,6 +171,34 @@ def write_category_trace_csv(path: Path, category_scores: np.ndarray, gt: np.nda
 
 def category_score_label(category: str) -> str:
     return f"{XD_LABEL_MAP[category]} ({category})"
+
+
+def abnormal_score_label() -> str:
+    return "Branch 2 (abnormal)"
+
+
+def plot_score_type(plot_score: str) -> str:
+    if plot_score == "abnormal":
+        return "abnormal"
+    return "category_alignment"
+
+
+def figure_score_label(category: str, plot_score: str) -> str:
+    if plot_score == "abnormal":
+        return abnormal_score_label()
+    return category_score_label(category)
+
+
+def figure_scores(
+    predictions: dict,
+    index: int,
+    length: int,
+    category: str,
+    plot_score: str,
+) -> np.ndarray:
+    if plot_score == "abnormal":
+        return video_abnormal_scores(predictions, index, length)
+    return video_category_scores(predictions, index, length, category)
 
 
 def category_output_dir_name(category: str) -> str:
@@ -182,6 +221,25 @@ def video_categories(label: str) -> list[str]:
         if token in XD_LABEL_MAP and token not in categories:
             categories.append(token)
     return categories
+
+
+def video_anomaly_mask(length: int, gtsegments: np.ndarray, index: int, label: str) -> np.ndarray:
+    categories = video_categories(label)
+    if categories == ["A"]:
+        return np.zeros(length, dtype=np.float32)
+    return video_ground_truth(length, gtsegments, index)
+
+
+def anomaly_frame_ratio(mask: np.ndarray) -> float:
+    if len(mask) == 0:
+        return 0.0
+    return float(np.mean(mask))
+
+
+def display_gt_mask(category: str, anomaly_mask: np.ndarray) -> np.ndarray:
+    if category == "A":
+        return np.zeros_like(anomaly_mask)
+    return anomaly_mask
 
 
 def video_length(predictions: dict, index: int) -> int:
@@ -278,6 +336,7 @@ def select_top_per_category(
     rank_metric: str,
     rank_score: str,
     candidate_indices: list[int] | None = None,
+    max_anomaly_ratio: float = 0.8,
 ) -> dict[str, list[tuple[int, float]]]:
     buckets: dict[str, list[tuple[int, float]]] = {category: [] for category in XD_LABEL_MAP}
     indices = (
@@ -295,10 +354,13 @@ def select_top_per_category(
             continue
 
         length = video_length(predictions, index)
-        gt = video_ground_truth(length, gtsegments, index)
+        anomaly_mask = video_anomaly_mask(length, gtsegments, index, meta.get("label", ""))
+        if anomaly_frame_ratio(anomaly_mask) > max_anomaly_ratio:
+            continue
+
         for category in categories:
             scores = ranking_scores(predictions, index, length, category, rank_score)
-            metric = per_video_ranking_metric(category, gt, scores, rank_metric, rank_score)
+            metric = per_video_ranking_metric(category, anomaly_mask, scores, rank_metric, rank_score)
             if metric > float("-inf"):
                 buckets[category].append((index, metric))
 
@@ -557,7 +619,6 @@ def write_coarse_png(
 
 def write_category_png(
     path: Path,
-    title: str,
     score_label: str,
     category_scores: np.ndarray,
     gt: np.ndarray,
@@ -570,13 +631,11 @@ def write_category_png(
     draw = ImageDraw.Draw(overlay)
     base_draw = ImageDraw.Draw(canvas)
 
-    title_font = default_font(24)
     label_font = default_font(18)
     small_font = default_font(13)
 
     margin_x = 44
-    title_y = 18
-    thumb_top = 52
+    thumb_top = 24
     thumb_height = max(56, min(96, int(height * 0.18)))
     thumb_width = int(thumb_height * 1.45)
     chart_top = thumb_top + thumb_height + 26
@@ -584,8 +643,8 @@ def write_category_png(
     chart_left = 58
     chart_right = width - 38
 
-    base_draw.text((margin_x, title_y), title, font=title_font, fill="#111827")
     draw_thumbnail_strip(canvas, base_draw, thumbnails, gt, margin_x, width - margin_x, thumb_top, thumb_width, thumb_height)
+    base_draw.text((chart_left, chart_top - 22), score_label, font=label_font, fill="#315f9f")
 
     draw.rounded_rectangle(
         (chart_left, chart_top, chart_right, chart_bottom),
@@ -607,8 +666,6 @@ def write_category_png(
 
     draw.line((chart_left, chart_bottom, chart_right, chart_bottom), fill=(107, 114, 128, 255), width=1)
     draw.line((chart_left, chart_top, chart_left, chart_bottom), fill=(107, 114, 128, 255), width=1)
-
-    draw_text_centered(draw, ((chart_left + chart_right) // 2, chart_top + 32), score_label, label_font, "#315f9f")
 
     legend_x = chart_right - 260
     legend_y = chart_top + 10
@@ -721,7 +778,26 @@ def parse_args() -> argparse.Namespace:
         default="abnormal",
         help="Score used for ranking: abnormal (Branch 2) or category (alignment class probability).",
     )
+    parser.add_argument(
+        "--plot-score",
+        type=str,
+        choices=PLOT_SCORES,
+        default="category",
+        help="Green curve in figures: category (fine-grained class alignment) or abnormal (coarse Branch 2).",
+    )
+    parser.add_argument(
+        "--max-anomaly-ratio",
+        type=float,
+        default=0.8,
+        help="Skip videos whose anomaly frame ratio exceeds this threshold before ranking.",
+    )
     parser.add_argument("--video-root", type=str, required=True, help="Directory containing original XD-Violence test videos.")
+    parser.add_argument(
+        "--adapter-variant",
+        type=str,
+        default=None,
+        help="Build AdapterAblationCLIPVAD with this variant. Omit for base CLIPVAD.",
+    )
     parser.add_argument("--num-thumbnails", type=int, default=5)
     parser.add_argument("--figure-width", type=int, default=960)
     parser.add_argument("--figure-height", type=int, default=360)
@@ -741,8 +817,15 @@ def main() -> None:
         raise FileNotFoundError(f"No videos with extensions {video_extensions} found under {video_root}")
     print(f"Indexed {len(set(video_index.values()))} videos from {video_root}")
 
-    model = build_xd_model(settings)
-    load_model_weights(model, settings["model_path"], settings["device"], strict=bool(settings["strict_load"]))
+    model_path = resolve_path(settings["model_path"])
+    if args.adapter_variant:
+        model = build_xd_model(settings, AdapterAblationCLIPVAD, variant=args.adapter_variant)
+        print(f"Using AdapterAblationCLIPVAD variant={args.adapter_variant}")
+    else:
+        model = build_xd_model(settings)
+        print("Using base CLIPVAD")
+    print(f"Loading weights from {model_path}")
+    load_model_weights(model, model_path, settings["device"], strict=bool(settings["strict_load"]))
 
     dataloader = build_xd_dataloader(settings)
     prompt_text = xd_prompt_text(settings.get("prompt_template"))
@@ -758,6 +841,8 @@ def main() -> None:
     candidate_indices = parse_indices(args.indices)
     rank_metric = str(args.rank_metric)
     rank_score = str(args.rank_score)
+    plot_score = str(args.plot_score)
+    max_anomaly_ratio = float(args.max_anomaly_ratio)
     selected_by_category = select_top_per_category(
         predictions,
         gtsegments,
@@ -765,11 +850,13 @@ def main() -> None:
         rank_metric,
         rank_score,
         candidate_indices=candidate_indices,
+        max_anomaly_ratio=max_anomaly_ratio,
     )
 
     print(
         f"Top cases per fine-grained category "
-        f"(rank_score={rank_score}, rank_metric={rank_metric}; figures use category alignment scores):"
+        f"(rank_score={rank_score}, rank_metric={rank_metric}, max_anomaly_ratio={max_anomaly_ratio}; "
+        f"figure green curve={plot_score}):"
     )
     for category, ranked in selected_by_category.items():
         category_name = XD_LABEL_MAP[category]
@@ -785,7 +872,15 @@ def main() -> None:
     output_dir = resolve_path(args.output_dir)
     clear_output_dir(output_dir)
     print(f"Cleared output directory: {output_dir}")
-    summary: dict[str, list[dict]] = {category: [] for category in XD_LABEL_MAP}
+    summary: dict[str, object] = {
+        "model_path": str(model_path),
+        "adapter_variant": args.adapter_variant,
+        "rank_score": rank_score,
+        "rank_metric": rank_metric,
+        "plot_score": plot_score,
+        "max_anomaly_ratio": max_anomaly_ratio,
+        **{category: [] for category in XD_LABEL_MAP},
+    }
     for category, ranked in selected_by_category.items():
         category_name = XD_LABEL_MAP[category]
         metric_type = ranking_metric_type(category, rank_metric, rank_score)
@@ -797,11 +892,13 @@ def main() -> None:
                 continue
 
             length = video_length(predictions, index)
-            gt = video_ground_truth(length, gtsegments, index)
-            category_scores = video_category_scores(predictions, index, length, category)
-            plot_score_label = category_score_label(category)
-
             meta = predictions["video_meta"][index]
+            anomaly_mask = video_anomaly_mask(length, gtsegments, index, meta.get("label", ""))
+            display_mask = display_gt_mask(category, anomaly_mask)
+            category_scores = video_category_scores(predictions, index, length, category)
+            abnormal_scores = video_abnormal_scores(predictions, index, length)
+            plotted_scores = figure_scores(predictions, index, length, category, plot_score)
+            plot_score_label = figure_score_label(category, plot_score)
             name = safe_name(meta.get("path", ""), f"case_{index}")
             csv_path = category_dir / f"{index:04d}_{name}.csv"
             png_path = category_dir / f"{index:04d}_{name}.png"
@@ -821,17 +918,12 @@ def main() -> None:
                 print(f"Skipping {category} case {index}: {error}")
                 continue
 
-            metric_label = ranking_metric_label(category, rank_metric, rank_score)
-            write_category_trace_csv(csv_path, category_scores, gt)
+            write_figure_trace_csv(csv_path, category_scores, abnormal_scores, anomaly_mask)
             write_category_png(
                 png_path,
-                (
-                    f"XD {category} ({category_name}) | {metric_label}={metric:.4f} | "
-                    f"label={meta.get('label', '')} | {Path(str(meta.get('path', ''))).stem}"
-                ),
                 plot_score_label,
-                category_scores,
-                gt,
+                plotted_scores,
+                display_mask,
                 thumbnails,
                 int(args.figure_width),
                 int(args.figure_height),
@@ -841,7 +933,8 @@ def main() -> None:
                     "index": index,
                     "category": category,
                     "category_name": category_name,
-                    "score_type": "category_alignment",
+                    "score_type": plot_score_type(plot_score),
+                    "plot_score": plot_score,
                     "rank_score": rank_score,
                     "rank_metric": rank_metric,
                     "metric": metric,
@@ -855,7 +948,8 @@ def main() -> None:
             )
 
     write_json(output_dir / "visualization_summary.json", summary)
-    for category, items in summary.items():
+    for category in XD_LABEL_MAP:
+        items = summary[category]
         for item in items:
             print(
                 f"category={item['category']} case={item['index']} metric={item['metric']:.6f} "
