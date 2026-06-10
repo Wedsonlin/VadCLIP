@@ -1,37 +1,331 @@
-[
-  {
-    "index": 0,
-    "label": "G-B2-B6",
-    "source": "D:/Datasets/XD-Violence/test/clipfeatures/Bad.Boys.1995__#01-11-55_01-12-40_label_G-B2-B6__0.npy",
-    "csv": "experiment\\results\\figures\\0000_Bad.Boys.1995___01-11-55_01-12-40_label_G-B2-B6__0.csv",
-    "svg": "experiment\\results\\figures\\0000_Bad.Boys.1995___01-11-55_01-12-40_label_G-B2-B6__0.svg"
-  },
-  {
-    "index": 1,
-    "label": "B2-0-0",
-    "source": "D:/Datasets/XD-Violence/test/clipfeatures/Bad.Boys.1995__#01-33-51_01-34-37_label_B2-0-0__0.npy",
-    "csv": "experiment\\results\\figures\\0001_Bad.Boys.1995___01-33-51_01-34-37_label_B2-0-0__0.csv",
-    "svg": "experiment\\results\\figures\\0001_Bad.Boys.1995___01-33-51_01-34-37_label_B2-0-0__0.svg"
-  },
-  {
-    "index": 2,
-    "label": "B2-G-0",
-    "source": "D:/Datasets/XD-Violence/test/clipfeatures/Bad.Boys.II.2003__#00-06-42_00-10-00_label_B2-G-0__0.npy",
-    "csv": "experiment\\results\\figures\\0002_Bad.Boys.II.2003___00-06-42_00-10-00_label_B2-G-0__0.csv",
-    "svg": "experiment\\results\\figures\\0002_Bad.Boys.II.2003___00-06-42_00-10-00_label_B2-G-0__0.svg"
-  },
-  {
-    "index": 3,
-    "label": "B2-0-0",
-    "source": "D:/Datasets/XD-Violence/test/clipfeatures/Black.Hawk.Down.2001__#01-13-59_01-14-49_label_B2-0-0__0.npy",
-    "csv": "experiment\\results\\figures\\0003_Black.Hawk.Down.2001___01-13-59_01-14-49_label_B2-0-0__0.csv",
-    "svg": "experiment\\results\\figures\\0003_Black.Hawk.Down.2001___01-13-59_01-14-49_label_B2-0-0__0.svg"
-  },
-  {
-    "index": 4,
-    "label": "B4-0-0",
-    "source": "D:/Datasets/XD-Violence/test/clipfeatures/Black.Hawk.Down.2001__#01-32-40_01-34-00_label_B4-0-0__0.npy",
-    "csv": "experiment\\results\\figures\\0004_Black.Hawk.Down.2001___01-32-40_01-34-00_label_B4-0-0__0.csv",
-    "svg": "experiment\\results\\figures\\0004_Black.Hawk.Down.2001___01-32-40_01-34-00_label_B4-0-0__0.svg"
-  }
-]
+{
+  "A": [
+    {
+      "index": 559,
+      "category": "A",
+      "category_name": "normal",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9442306756973267,
+      "metric_type": "mean_normal_prob",
+      "label": "A",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/Hear.Me.2009__#00-49-48_00-51-12_label_A__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\Hear.Me.2009__#00-49-48_00-51-12_label_A.mp4",
+      "csv": "experiment\\results\\figures\\A_normal\\0559_Hear.Me.2009___00-49-48_00-51-12_label_A__0.csv",
+      "png": "experiment\\results\\figures\\A_normal\\0559_Hear.Me.2009___00-49-48_00-51-12_label_A__0.png"
+    },
+    {
+      "index": 737,
+      "category": "A",
+      "category_name": "normal",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9402690529823303,
+      "metric_type": "mean_normal_prob",
+      "label": "A",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/v=Yr41_8QOTF8__#00-21-00_00-24-00_label_A__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\v=Yr41_8QOTF8__#00-21-00_00-24-00_label_A.mp4",
+      "csv": "experiment\\results\\figures\\A_normal\\0737_v_Yr41_8QOTF8___00-21-00_00-24-00_label_A__0.csv",
+      "png": "experiment\\results\\figures\\A_normal\\0737_v_Yr41_8QOTF8___00-21-00_00-24-00_label_A__0.png"
+    },
+    {
+      "index": 793,
+      "category": "A",
+      "category_name": "normal",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9325810670852661,
+      "metric_type": "mean_normal_prob",
+      "label": "A",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/v=wQrV75N2BrI__#1_label_A__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\v=wQrV75N2BrI__#1_label_A.mp4",
+      "csv": "experiment\\results\\figures\\A_normal\\0793_v_wQrV75N2BrI___1_label_A__0.csv",
+      "png": "experiment\\results\\figures\\A_normal\\0793_v_wQrV75N2BrI___1_label_A__0.png"
+    }
+  ],
+  "B1": [
+    {
+      "index": 46,
+      "category": "B1",
+      "category_name": "fighting",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9543659105871087,
+      "metric_type": "category_auc",
+      "label": "B1-B2-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/Fast.Five.2011__#00-32-05_00-32-24_label_B1-B2-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\Fast.Five.2011__#00-32-05_00-32-24_label_B1-B2-0.mp4",
+      "csv": "experiment\\results\\figures\\B1_fighting\\0046_Fast.Five.2011___00-32-05_00-32-24_label_B1-B2-0__0.csv",
+      "png": "experiment\\results\\figures\\B1_fighting\\0046_Fast.Five.2011___00-32-05_00-32-24_label_B1-B2-0__0.png"
+    },
+    {
+      "index": 400,
+      "category": "B1",
+      "category_name": "fighting",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.8968,
+      "metric_type": "category_auc",
+      "label": "B1-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/v=gENp4SyNxkI__#1_label_B1-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\v=gENp4SyNxkI__#1_label_B1-0-0.mp4",
+      "csv": "experiment\\results\\figures\\B1_fighting\\0400_v_gENp4SyNxkI___1_label_B1-0-0__0.csv",
+      "png": "experiment\\results\\figures\\B1_fighting\\0400_v_gENp4SyNxkI___1_label_B1-0-0__0.png"
+    },
+    {
+      "index": 71,
+      "category": "B1",
+      "category_name": "fighting",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.8708882194741937,
+      "metric_type": "category_auc",
+      "label": "B1-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/Haywire.2011__#01-20-20_01-21-57_label_B1-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\Haywire.2011__#01-20-20_01-21-57_label_B1-0-0.mp4",
+      "csv": "experiment\\results\\figures\\B1_fighting\\0071_Haywire.2011___01-20-20_01-21-57_label_B1-0-0__0.csv",
+      "png": "experiment\\results\\figures\\B1_fighting\\0071_Haywire.2011___01-20-20_01-21-57_label_B1-0-0__0.png"
+    }
+  ],
+  "B2": [
+    {
+      "index": 107,
+      "category": "B2",
+      "category_name": "shooting",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.990995582738702,
+      "metric_type": "category_auc",
+      "label": "B2-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/Mission.Impossible.II.2000__#01-25-08_01-25-31_label_B2-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\Mission.Impossible.II.2000__#01-25-08_01-25-31_label_B2-0-0.mp4",
+      "csv": "experiment\\results\\figures\\B2_shooting\\0107_Mission.Impossible.II.2000___01-25-08_01-25-31_label_B2-0-0__0.csv",
+      "png": "experiment\\results\\figures\\B2_shooting\\0107_Mission.Impossible.II.2000___01-25-08_01-25-31_label_B2-0-0__0.png"
+    },
+    {
+      "index": 46,
+      "category": "B2",
+      "category_name": "shooting",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9862848365152513,
+      "metric_type": "category_auc",
+      "label": "B1-B2-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/Fast.Five.2011__#00-32-05_00-32-24_label_B1-B2-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\Fast.Five.2011__#00-32-05_00-32-24_label_B1-B2-0.mp4",
+      "csv": "experiment\\results\\figures\\B2_shooting\\0046_Fast.Five.2011___00-32-05_00-32-24_label_B1-B2-0__0.csv",
+      "png": "experiment\\results\\figures\\B2_shooting\\0046_Fast.Five.2011___00-32-05_00-32-24_label_B1-B2-0__0.png"
+    },
+    {
+      "index": 53,
+      "category": "B2",
+      "category_name": "shooting",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9826658233656391,
+      "metric_type": "category_auc",
+      "label": "B2-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/Fast.Furious.2009__#01-29-10_01-29-55_label_B2-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\Fast.Furious.2009__#01-29-10_01-29-55_label_B2-0-0.mp4",
+      "csv": "experiment\\results\\figures\\B2_shooting\\0053_Fast.Furious.2009___01-29-10_01-29-55_label_B2-0-0__0.csv",
+      "png": "experiment\\results\\figures\\B2_shooting\\0053_Fast.Furious.2009___01-29-10_01-29-55_label_B2-0-0__0.png"
+    }
+  ],
+  "B4": [
+    {
+      "index": 237,
+      "category": "B4",
+      "category_name": "riot",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9999786669397299,
+      "metric_type": "category_auc",
+      "label": "B4-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/v=2WkuPNLfl5s__#1_label_B4-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\v=2WkuPNLfl5s__#1_label_B4-0-0.mp4",
+      "csv": "experiment\\results\\figures\\B4_riot\\0237_v_2WkuPNLfl5s___1_label_B4-0-0__0.csv",
+      "png": "experiment\\results\\figures\\B4_riot\\0237_v_2WkuPNLfl5s___1_label_B4-0-0__0.png"
+    },
+    {
+      "index": 238,
+      "category": "B4",
+      "category_name": "riot",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9999632898195328,
+      "metric_type": "category_auc",
+      "label": "B4-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/v=2al4t5inObA__#1_label_B4-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\v=2al4t5inObA__#1_label_B4-0-0.mp4",
+      "csv": "experiment\\results\\figures\\B4_riot\\0238_v_2al4t5inObA___1_label_B4-0-0__0.csv",
+      "png": "experiment\\results\\figures\\B4_riot\\0238_v_2al4t5inObA___1_label_B4-0-0__0.png"
+    },
+    {
+      "index": 342,
+      "category": "B4",
+      "category_name": "riot",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9998721685330061,
+      "metric_type": "category_auc",
+      "label": "B4-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/v=QWwDsPSe7iM__#1_label_B4-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\v=QWwDsPSe7iM__#1_label_B4-0-0.mp4",
+      "csv": "experiment\\results\\figures\\B4_riot\\0342_v_QWwDsPSe7iM___1_label_B4-0-0__0.csv",
+      "png": "experiment\\results\\figures\\B4_riot\\0342_v_QWwDsPSe7iM___1_label_B4-0-0__0.png"
+    }
+  ],
+  "B5": [
+    {
+      "index": 173,
+      "category": "B5",
+      "category_name": "abuse",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.7137345679012346,
+      "metric_type": "category_auc",
+      "label": "B5-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/Taken.2.UNRATED.EXTENDED.2012__#00-13-42_00-14-16_label_B5-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\Taken.2.UNRATED.EXTENDED.2012__#00-13-42_00-14-16_label_B5-0-0.mp4",
+      "csv": "experiment\\results\\figures\\B5_abuse\\0173_Taken.2.UNRATED.EXTENDED.2012___00-13-42_00-14-16_label_B5-0-0__0.csv",
+      "png": "experiment\\results\\figures\\B5_abuse\\0173_Taken.2.UNRATED.EXTENDED.2012___00-13-42_00-14-16_label_B5-0-0__0.png"
+    },
+    {
+      "index": 211,
+      "category": "B5",
+      "category_name": "abuse",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.6259205545613603,
+      "metric_type": "category_auc",
+      "label": "B5-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/Yellow.Sea.2010__#01-58-30_01-59-27_label_B5-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\Yellow.Sea.2010__#01-58-30_01-59-27_label_B5-0-0.mp4",
+      "csv": "experiment\\results\\figures\\B5_abuse\\0211_Yellow.Sea.2010___01-58-30_01-59-27_label_B5-0-0__0.csv",
+      "png": "experiment\\results\\figures\\B5_abuse\\0211_Yellow.Sea.2010___01-58-30_01-59-27_label_B5-0-0__0.png"
+    },
+    {
+      "index": 40,
+      "category": "B5",
+      "category_name": "abuse",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.4787808491014283,
+      "metric_type": "category_auc",
+      "label": "B5-B6-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/Death.Proof.2007__#01-40-41_01-42-17_label_B5-B6-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\Death.Proof.2007__#01-40-41_01-42-17_label_B5-B6-0.mp4",
+      "csv": "experiment\\results\\figures\\B5_abuse\\0040_Death.Proof.2007___01-40-41_01-42-17_label_B5-B6-0__0.csv",
+      "png": "experiment\\results\\figures\\B5_abuse\\0040_Death.Proof.2007___01-40-41_01-42-17_label_B5-B6-0__0.png"
+    }
+  ],
+  "B6": [
+    {
+      "index": 451,
+      "category": "B6",
+      "category_name": "car accident",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9088643508933364,
+      "metric_type": "category_auc",
+      "label": "B6-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/v=tP19WuyY3IY__#00-06-10_00-07-51_label_B6-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\v=tP19WuyY3IY__#00-06-10_00-07-51_label_B6-0-0.mp4",
+      "csv": "experiment\\results\\figures\\B6_car_accident\\0451_v_tP19WuyY3IY___00-06-10_00-07-51_label_B6-0-0__0.csv",
+      "png": "experiment\\results\\figures\\B6_car_accident\\0451_v_tP19WuyY3IY___00-06-10_00-07-51_label_B6-0-0__0.png"
+    },
+    {
+      "index": 132,
+      "category": "B6",
+      "category_name": "car accident",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.7899111969545903,
+      "metric_type": "category_auc",
+      "label": "B2-B6-G",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/Rush.Hour.1998.BluRay__#00-08-08_00-09-15_label_B2-B6-G__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\Rush.Hour.1998.BluRay__#00-08-08_00-09-15_label_B2-B6-G.mp4",
+      "csv": "experiment\\results\\figures\\B6_car_accident\\0132_Rush.Hour.1998.BluRay___00-08-08_00-09-15_label_B2-B6-G__0.csv",
+      "png": "experiment\\results\\figures\\B6_car_accident\\0132_Rush.Hour.1998.BluRay___00-08-08_00-09-15_label_B2-B6-G__0.png"
+    },
+    {
+      "index": 459,
+      "category": "B6",
+      "category_name": "car accident",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.7765598650927488,
+      "metric_type": "category_auc",
+      "label": "B6-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/v=uBXprlsmd18__#00-06-10_00-07-19_label_B6-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\v=uBXprlsmd18__#00-06-10_00-07-19_label_B6-0-0.mp4",
+      "csv": "experiment\\results\\figures\\B6_car_accident\\0459_v_uBXprlsmd18___00-06-10_00-07-19_label_B6-0-0__0.csv",
+      "png": "experiment\\results\\figures\\B6_car_accident\\0459_v_uBXprlsmd18___00-06-10_00-07-19_label_B6-0-0__0.png"
+    }
+  ],
+  "G": [
+    {
+      "index": 63,
+      "category": "G",
+      "category_name": "explosion",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9988893892399779,
+      "metric_type": "category_auc",
+      "label": "G-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/GoldenEye.1995__#00-10-00_00-10-40_label_G-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\GoldenEye.1995__#00-10-00_00-10-40_label_G-0-0.mp4",
+      "csv": "experiment\\results\\figures\\G_explosion\\0063_GoldenEye.1995___00-10-00_00-10-40_label_G-0-0__0.csv",
+      "png": "experiment\\results\\figures\\G_explosion\\0063_GoldenEye.1995___00-10-00_00-10-40_label_G-0-0__0.png"
+    },
+    {
+      "index": 291,
+      "category": "G",
+      "category_name": "explosion",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9979106129791061,
+      "metric_type": "category_auc",
+      "label": "G-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/v=DVdXoVUNkhg__#1_label_G-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\v=DVdXoVUNkhg__#1_label_G-0-0.mp4",
+      "csv": "experiment\\results\\figures\\G_explosion\\0291_v_DVdXoVUNkhg___1_label_G-0-0__0.csv",
+      "png": "experiment\\results\\figures\\G_explosion\\0291_v_DVdXoVUNkhg___1_label_G-0-0__0.png"
+    },
+    {
+      "index": 456,
+      "category": "G",
+      "category_name": "explosion",
+      "score_type": "category_alignment",
+      "rank_score": "category",
+      "rank_metric": "auc",
+      "metric": 0.9977050147950823,
+      "metric_type": "category_auc",
+      "label": "G-0-0",
+      "source": "D:/Datasets/XD-Violence/test/clipfeatures/v=u5SF4SlqNDQ__#00-00-00_00-01-00_label_G-0-0__0.npy",
+      "video": "H:\\Datasets\\XD-Violence\\test\\videos\\v=u5SF4SlqNDQ__#00-00-00_00-01-00_label_G-0-0.mp4",
+      "csv": "experiment\\results\\figures\\G_explosion\\0456_v_u5SF4SlqNDQ___00-00-00_00-01-00_label_G-0-0__0.csv",
+      "png": "experiment\\results\\figures\\G_explosion\\0456_v_u5SF4SlqNDQ___00-00-00_00-01-00_label_G-0-0__0.png"
+    }
+  ]
+}

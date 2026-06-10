@@ -103,21 +103,97 @@ python experiment/scripts/run_prompt_hyperparams.py \
 
 ## 5. Qualitative Visualization
 
-Export per-frame score traces and paper-style coarse anomaly score PNGs for selected test videos.
+Export per-frame fine-grained category alignment score traces and paper-style coarse score PNGs
+grouped by XD category. By default, the script runs inference on the full XD test set, ranks videos
+within each category, and exports the top `3` highest-scoring cases per category (up to 21 figures total).
 `--video-root` must point to the original XD-Violence test videos so the script can sample thumbnails.
-It may contain either full movies, using the clip timestamps in the feature filename, or pre-cut clip videos:
+It may contain either full movies, using the clip timestamps in the feature filename, or pre-cut clip videos.
+
+Fine-grained category map:
+
+
+| Code | Name         |
+| ---- | ------------ |
+| A    | normal       |
+| B1   | fighting     |
+| B2   | shooting     |
+| B4   | riot         |
+| B5   | abuse        |
+| B6   | car accident |
+| G    | explosion    |
+
+
+Score curve and ranking metric:
+
+- Figures and `.csv` always plot the alignment probability of the target fine-grained class in each
+  subdirectory (e.g. `G_explosion/` uses explosion/G scores, `A_normal/` uses normal/A scores).
+- Ranking score source (`--rank-score`, default `abnormal`):
+  - `abnormal`: rank by Branch 2 scores.
+  - `category`: rank by the alignment probability of the target fine-grained class (e.g. fighting for `B1`).
+- Ranking metric (`--rank-metric`, default `auc`):
+  - `auc`: frame-level AUC between the selected ranking score and the ground-truth mask.
+  - `f1`: F1 at threshold 0.5.
+  - `ap`: frame-level AP.
+- Normal category (`A`):
+  - `abnormal`: `1 - mean(abnormal_score)`.
+  - `category`: `mean(normal_class_probability)`.
 
 ```bash
 python experiment/scripts/run_visualize_cases.py \
   --config experiment/configs/xd_baseline.yaml \
-  --video-root D:/Datasets/XD-Violence/test/videos \
-  --indices 0,1,2,3,4
+  --video-root H:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv
 ```
 
-Outputs are written to `experiment/results/figures/`:
+Useful overrides:
 
-- `.csv`: frame, Branch 1 score, Branch 2 score, ground-truth mask.
-- `.png`: sampled video thumbnails plus Branch 1 / Branch 2 score curves with ground-truth anomaly regions highlighted.
+```bash
+# Export the top 5 cases per category instead of the default 3
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_baseline.yaml \
+  --video-root H:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv \
+  --top-k 5
+
+# Rank by F1@0.5 instead of the default AUC
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_baseline.yaml \
+  --video-root H:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv \
+  --rank-metric f1
+
+# Rank by fine-grained category alignment scores instead of Branch 2 abnormal scores
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_baseline.yaml \
+  --video-root H:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv \
+  --rank-score category
+
+# Rank only within a subset of test-video indices
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_baseline.yaml \
+  --video-root D:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv \
+  --indices 12,48,103
+```
+
+Outputs are written under `experiment/results/figures/`:
+
+```text
+experiment/results/figures/
+  A_normal/
+  B1_fighting/
+  B2_shooting/
+  B4_riot/
+  B5_abuse/
+  B6_car_accident/
+  G_explosion/
+  visualization_summary.json
+```
+
+- `.csv`: `frame`, `category_score`, `ground_truth`.
+- `.png`: sampled video thumbnails plus the target category alignment score curve with ground-truth anomaly regions highlighted.
+- `visualization_summary.json`: cases grouped by category code, with `score_type` (`category_alignment`), `rank_score`, `rank_metric`, `metric`, `metric_type` (e.g. `abnormal_auc`, `category_auc`, `mean_normal_prob`), source feature path, and output file paths.
 
 ## Notes
 
