@@ -104,21 +104,131 @@ python experiment/scripts/run_prompt_hyperparams.py \
 
 ## 5. Qualitative Visualization
 
-Export per-frame score traces and paper-style coarse anomaly score PNGs for selected test videos.
+Export per-frame score traces and paper-style PNG figures grouped by XD fine-grained category.
+By default, the script runs inference on the full XD test set, ranks videos within each category,
+and exports the top `3` highest-scoring cases per category (up to 21 figures total).
+
 `--video-root` must point to the original XD-Violence test videos so the script can sample thumbnails.
-It may contain either full movies, using the clip timestamps in the feature filename, or pre-cut clip videos:
+It may contain either full movies, using the clip timestamps in the feature filename, or pre-cut clip videos.
+
+By default the script builds the base `CLIPVAD` model and loads `model_path` from the config
+(typically `model/model_xd.pth` via `xd_baseline.yaml`). To visualize an adapter ablation checkpoint,
+pass `--adapter-variant` so the script builds the matching `AdapterAblationCLIPVAD` architecture
+before loading weights (same pattern as `run_xd_eval.py`).
+
+Fine-grained category map:
+
+
+| Code | Name         |
+| ---- | ------------ |
+| A    | normal       |
+| B1   | fighting     |
+| B2   | shooting     |
+| B4   | riot         |
+| B5   | abuse        |
+| B6   | car accident |
+| G    | explosion    |
+
+
+Pre-filter and ranking:
+
+- `--max-anomaly-ratio` (default `0.8`): skip videos whose **anomaly frame ratio** exceeds this threshold before ranking. Pure normal clips (`label=A`) use an all-zero anomaly mask and are not filtered by this rule.
+- `--rank-score` (default `abnormal`) controls which score is used to **select** top-k cases within each category.
+  - `abnormal`: Branch 2 coarse anomaly scores.
+  - `category`: fine-grained alignment probability of the target class (e.g. fighting for `B1`).
+- `--plot-score` (default `category`) controls the **green curve** drawn in each PNG:
+  - `category`: fine-grained class alignment (e.g. `fighting (B1)` in `B1_fighting/`).
+  - `abnormal`: coarse Branch 2 anomaly score (`Branch 2 (abnormal)`).
+- `--rank-metric` (default `auc`): ranking metric — `auc`, `f1` (F1@0.5), or `ap`.
+- Normal category (`A`) when ranking:
+  - `abnormal`: `1 - mean(abnormal_score)`.
+  - `category`: `mean(normal_class_probability)`.
+
+Figure layout and ground truth:
+
+- PNGs have no long title bar at the top; the score label (e.g. `fighting (B1)`) is drawn **above** the chart, outside the plot area.
+- `A_normal/` figures use a white chart background with **no pink GT overlay** (for pure normal clips, dataset intervals mark normal segments, not anomalies).
+- Other categories highlight annotated anomaly intervals in pink.
+- `.csv` `ground_truth` is always an **anomaly mask** (`1` = anomalous frame); pure normal videos are all `0`.
+
+Baseline checkpoint:
 
 ```bash
 python experiment/scripts/run_visualize_cases.py \
   --config experiment/configs/xd_baseline.yaml \
-  --video-root D:/Datasets/XD-Violence/test/videos \
-  --indices 0,1,2,3,4
+  --video-root H:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv
 ```
 
-Outputs are written to `experiment/results/figures/`:
+Adapter checkpoint (`lgt_adapter` example):
 
-- `.csv`: frame, Branch 1 score, Branch 2 score, ground-truth mask.
-- `.png`: sampled video thumbnails plus Branch 1 / Branch 2 score curves with ground-truth anomaly regions highlighted.
+```bash
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_ablation.yaml \
+  --adapter-variant lgt_adapter \
+  --model-path model/xd_adapter_lgt_adapter_seed234.pth \
+  --video-root H:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv
+```
+
+Useful overrides:
+
+```bash
+# Export the top 5 cases per category instead of the default 3
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_baseline.yaml \
+  --video-root H:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv \
+  --top-k 5
+
+# Rank by F1@0.5 instead of the default AUC
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_baseline.yaml \
+  --video-root H:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv \
+  --rank-metric f1
+
+# Rank by fine-grained category alignment scores instead of Branch 2 abnormal scores
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_baseline.yaml \
+  --video-root H:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv \
+  --rank-score category
+
+# Plot coarse Branch 2 scores in the green curve (ranking still uses --rank-score default)
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_ablation.yaml \
+  --adapter-variant lgt_adapter \
+  --model-path model/xd_adapter_lgt_adapter_seed234.pth \
+  --video-root H:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv \
+  --plot-score abnormal
+
+# Rank only within a subset of test-video indices
+python experiment/scripts/run_visualize_cases.py \
+  --config experiment/configs/xd_baseline.yaml \
+  --video-root D:/Datasets/XD-Violence/test/videos \
+  --test-list list/xd_CLIP_rgbtest_local.csv \
+  --indices 12,48,103
+```
+
+Outputs are written under `experiment/results/figures/`:
+
+```text
+experiment/results/figures/
+  A_normal/
+  B1_fighting/
+  B2_shooting/
+  B4_riot/
+  B5_abuse/
+  B6_car_accident/
+  G_explosion/
+  visualization_summary.json
+```
+
+- `.csv`: `frame`, `category_score`, `abnormal_score`, `ground_truth` (anomaly mask; both score traces exported; PNG follows `--plot-score`).
+- `.png`: sampled video thumbnails plus one green score curve (`--plot-score`); anomaly GT overlay on non-`A` categories only.
+- `visualization_summary.json`: top-level `model_path`, `adapter_variant` (null for base `CLIPVAD`), `rank_score`, `rank_metric`, `plot_score`, and `max_anomaly_ratio`; per-category lists with `score_type`, `plot_score`, `rank_score`, `rank_metric`, `metric`, `metric_type`, source feature path, and output file paths.
 
 ## Notes
 

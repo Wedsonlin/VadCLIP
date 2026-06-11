@@ -3,14 +3,19 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+import shutil
 from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
+from sklearn.metrics import f1_score
 
+from ablation_models import AdapterAblationCLIPVAD
 from common import (
+    XD_LABEL_MAP,
     add_xd_runtime_args,
+    binary_detection_metrics,
     build_xd_dataloader,
     build_xd_model,
     collect_xd_predictions,
@@ -21,6 +26,11 @@ from common import (
     xd_prompt_text,
     xd_settings,
 )
+
+CATEGORY_CLASS_INDEX = {code: idx for idx, code in enumerate(XD_LABEL_MAP)}
+RANK_METRICS = ("auc", "f1", "ap")
+RANK_SCORES = ("abnormal", "category")
+PLOT_SCORES = ("category", "abnormal")
 
 
 def parse_indices(value: str | None) -> list[int] | None:
@@ -133,6 +143,232 @@ def write_trace_csv(
                     "ground_truth": int(gt[frame]),
                 }
             )
+
+
+def write_figure_trace_csv(
+    path: Path,
+    category_scores: np.ndarray,
+    abnormal_scores: np.ndarray,
+    gt: np.ndarray,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["frame", "category_score", "abnormal_score", "ground_truth"],
+        )
+        writer.writeheader()
+        for frame in range(len(gt)):
+            writer.writerow(
+                {
+                    "frame": frame,
+                    "category_score": float(category_scores[frame]),
+                    "abnormal_score": float(abnormal_scores[frame]),
+                    "ground_truth": int(gt[frame]),
+                }
+            )
+
+
+def category_score_label(category: str) -> str:
+    return f"{XD_LABEL_MAP[category]} ({category})"
+
+
+def abnormal_score_label() -> str:
+    return "Branch 2 (abnormal)"
+
+
+def plot_score_type(plot_score: str) -> str:
+    if plot_score == "abnormal":
+        return "abnormal"
+    return "category_alignment"
+
+
+def figure_score_label(category: str, plot_score: str) -> str:
+    if plot_score == "abnormal":
+        return abnormal_score_label()
+    return category_score_label(category)
+
+
+def figure_scores(
+    predictions: dict,
+    index: int,
+    length: int,
+    category: str,
+    plot_score: str,
+) -> np.ndarray:
+    if plot_score == "abnormal":
+        return video_abnormal_scores(predictions, index, length)
+    return video_category_scores(predictions, index, length, category)
+
+
+def category_output_dir_name(category: str) -> str:
+    slug = XD_LABEL_MAP[category].replace(" ", "_")
+    return f"{category}_{slug}"
+
+
+def clear_output_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    for child in path.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+def video_categories(label: str) -> list[str]:
+    categories = []
+    for token in str(label).split("-"):
+        if token in XD_LABEL_MAP and token not in categories:
+            categories.append(token)
+    return categories
+
+
+def video_anomaly_mask(length: int, gtsegments: np.ndarray, index: int, label: str) -> np.ndarray:
+    categories = video_categories(label)
+    if categories == ["A"]:
+        return np.zeros(length, dtype=np.float32)
+    return video_ground_truth(length, gtsegments, index)
+
+
+def anomaly_frame_ratio(mask: np.ndarray) -> float:
+    if len(mask) == 0:
+        return 0.0
+    return float(np.mean(mask))
+
+
+def display_gt_mask(category: str, anomaly_mask: np.ndarray) -> np.ndarray:
+    if category == "A":
+        return np.zeros_like(anomaly_mask)
+    return anomaly_mask
+
+
+def video_length(predictions: dict, index: int) -> int:
+    return len(predictions["alignment_stack"][index])
+
+
+def video_abnormal_scores(predictions: dict, index: int, length: int) -> np.ndarray:
+    branch2 = np.repeat(predictions["branch2_segments"][index], 16)
+    return branch2[:length].astype(np.float32)
+
+
+def video_category_scores(predictions: dict, index: int, length: int, category: str) -> np.ndarray:
+    class_idx = CATEGORY_CLASS_INDEX[category]
+    alignment = predictions["alignment_stack"][index]
+    return alignment[:length, class_idx].astype(np.float32)
+
+
+def ranking_scores(
+    predictions: dict,
+    index: int,
+    length: int,
+    category: str,
+    rank_score: str,
+) -> np.ndarray:
+    if rank_score == "category":
+        return video_category_scores(predictions, index, length, category)
+    return video_abnormal_scores(predictions, index, length)
+
+
+def frame_f1_at_threshold(gt: np.ndarray, scores: np.ndarray, threshold: float = 0.5) -> float:
+    aligned_len = min(len(gt), len(scores))
+    gt_aligned = gt[:aligned_len].astype(np.int32)
+    pred = (scores[:aligned_len] >= threshold).astype(np.int32)
+    return float(f1_score(gt_aligned, pred, zero_division=0))
+
+
+def per_video_ranking_metric(
+    category: str,
+    gt: np.ndarray,
+    scores: np.ndarray,
+    rank_metric: str,
+    rank_score: str,
+) -> float:
+    if rank_score == "category":
+        if category == "A":
+            return float(np.mean(scores))
+        prefix = "category"
+    else:
+        if category == "A":
+            return float(1.0 - np.mean(scores))
+        prefix = "abnormal"
+
+    try:
+        if rank_metric == "f1":
+            return frame_f1_at_threshold(gt, scores)
+        metrics = binary_detection_metrics(gt, scores, prefix)
+        if rank_metric == "auc":
+            return metrics[f"{prefix}_auc"]
+        return metrics[f"{prefix}_ap"]
+    except ValueError:
+        return float("-inf")
+
+
+def ranking_metric_type(category: str, rank_metric: str, rank_score: str) -> str:
+    if rank_score == "category" and category == "A":
+        return "mean_normal_prob"
+    if rank_score == "abnormal" and category == "A":
+        return "inverted_abnormal_mean"
+    prefix = "category" if rank_score == "category" else "abnormal"
+    if rank_metric == "f1":
+        return f"{prefix}_f1_at_0.5"
+    if rank_metric == "auc":
+        return f"{prefix}_auc"
+    return f"{prefix}_ap"
+
+
+def ranking_metric_label(category: str, rank_metric: str, rank_score: str) -> str:
+    if rank_score == "category" and category == "A":
+        return "mean_normal_prob"
+    if rank_score == "abnormal" and category == "A":
+        return "inverted_abnormal_mean"
+    prefix = "category" if rank_score == "category" else "abnormal"
+    if rank_metric == "f1":
+        return f"{prefix}_F1@0.5"
+    if rank_metric == "auc":
+        return f"{prefix}_AUC"
+    return f"{prefix}_AP"
+
+
+def select_top_per_category(
+    predictions: dict,
+    gtsegments: np.ndarray,
+    top_k: int,
+    rank_metric: str,
+    rank_score: str,
+    candidate_indices: list[int] | None = None,
+    max_anomaly_ratio: float = 0.8,
+) -> dict[str, list[tuple[int, float]]]:
+    buckets: dict[str, list[tuple[int, float]]] = {category: [] for category in XD_LABEL_MAP}
+    indices = (
+        candidate_indices
+        if candidate_indices is not None
+        else list(range(len(predictions["branch1_segments"])))
+    )
+
+    for index in indices:
+        if index < 0 or index >= len(predictions["branch1_segments"]):
+            continue
+        meta = predictions["video_meta"][index]
+        categories = video_categories(meta.get("label", ""))
+        if not categories:
+            continue
+
+        length = video_length(predictions, index)
+        anomaly_mask = video_anomaly_mask(length, gtsegments, index, meta.get("label", ""))
+        if anomaly_frame_ratio(anomaly_mask) > max_anomaly_ratio:
+            continue
+
+        for category in categories:
+            scores = ranking_scores(predictions, index, length, category, rank_score)
+            metric = per_video_ranking_metric(category, anomaly_mask, scores, rank_metric, rank_score)
+            if metric > float("-inf"):
+                buckets[category].append((index, metric))
+
+    selected: dict[str, list[tuple[int, float]]] = {}
+    for category in XD_LABEL_MAP:
+        ranked = sorted(buckets[category], key=lambda item: item[1], reverse=True)
+        selected[category] = ranked[:top_k]
+    return selected
 
 
 def default_font(size: int) -> ImageFont.ImageFont:
@@ -381,6 +617,74 @@ def write_coarse_png(
     canvas.save(path)
 
 
+def write_category_png(
+    path: Path,
+    score_label: str,
+    category_scores: np.ndarray,
+    gt: np.ndarray,
+    thumbnails: list[dict],
+    width: int,
+    height: int,
+) -> None:
+    canvas = Image.new("RGB", (width, height), "white")
+    overlay = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(overlay)
+    base_draw = ImageDraw.Draw(canvas)
+
+    label_font = default_font(18)
+    small_font = default_font(13)
+
+    margin_x = 44
+    thumb_top = 24
+    thumb_height = max(56, min(96, int(height * 0.18)))
+    thumb_width = int(thumb_height * 1.45)
+    chart_top = thumb_top + thumb_height + 26
+    chart_bottom = height - 54
+    chart_left = 58
+    chart_right = width - 38
+
+    draw_thumbnail_strip(canvas, base_draw, thumbnails, gt, margin_x, width - margin_x, thumb_top, thumb_width, thumb_height)
+    base_draw.text((chart_left, chart_top - 22), score_label, font=label_font, fill="#315f9f")
+
+    draw.rounded_rectangle(
+        (chart_left, chart_top, chart_right, chart_bottom),
+        radius=4,
+        fill=(255, 255, 255, 255),
+        outline=(209, 213, 219, 255),
+        width=1,
+    )
+    draw_gt_regions(draw, gt, chart_left, chart_right, chart_top, chart_bottom)
+
+    for fraction, tick in ((0.0, "0"), (0.5, "0.5"), (1.0, "1")):
+        y = chart_bottom - round(fraction * (chart_bottom - chart_top))
+        draw.line((chart_left, y, chart_right, y), fill=(229, 231, 235, 255), width=1)
+        base_draw.text((14, y - 8), tick, font=small_font, fill="#6b7280")
+
+    score_points = curve_points(category_scores, chart_left, chart_right, chart_top, chart_bottom)
+    if len(score_points) > 1:
+        draw.line(score_points, fill=(22, 163, 74, 255), width=3, joint="curve")
+
+    draw.line((chart_left, chart_bottom, chart_right, chart_bottom), fill=(107, 114, 128, 255), width=1)
+    draw.line((chart_left, chart_top, chart_left, chart_bottom), fill=(107, 114, 128, 255), width=1)
+
+    legend_x = chart_right - 260
+    legend_y = chart_top + 10
+    draw.rounded_rectangle(
+        (legend_x, legend_y, chart_right - 10, legend_y + 58),
+        radius=4,
+        fill=(255, 255, 255, 218),
+        outline=(229, 231, 235, 255),
+    )
+    draw.line((legend_x + 14, legend_y + 18, legend_x + 54, legend_y + 18), fill=(22, 163, 74, 255), width=4)
+    draw.text((legend_x + 64, legend_y + 10), score_label, font=small_font, fill="#111827")
+    draw.rectangle((legend_x + 14, legend_y + 38, legend_x + 54, legend_y + 48), fill=(244, 114, 182, 82))
+    draw.text((legend_x + 64, legend_y + 34), "GT anomaly", font=small_font, fill="#111827")
+
+    canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path)
+
+
 def points_for_line(values: np.ndarray, width: int, height: int, pad: int) -> str:
     if len(values) <= 1:
         return ""
@@ -448,9 +752,52 @@ def write_svg(path: Path, title: str, branch1: np.ndarray, branch2: np.ndarray, 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export XD-Violence qualitative score curves.")
     add_xd_runtime_args(parser)
-    parser.add_argument("--indices", type=str, default=None, help="Comma-separated test-video indices.")
-    parser.add_argument("--num-cases", type=int, default=5)
+    parser.add_argument(
+        "--indices",
+        type=str,
+        default=None,
+        help="Comma-separated test-video indices. If set, only these videos are ranked per category.",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=3,
+        help="Number of highest-scoring test videos to export per fine-grained category.",
+    )
+    parser.add_argument(
+        "--rank-metric",
+        type=str,
+        choices=RANK_METRICS,
+        default="auc",
+        help="Ranking metric for anomaly categories: auc, f1 (F1@0.5), or ap.",
+    )
+    parser.add_argument(
+        "--rank-score",
+        type=str,
+        choices=RANK_SCORES,
+        default="abnormal",
+        help="Score used for ranking: abnormal (Branch 2) or category (alignment class probability).",
+    )
+    parser.add_argument(
+        "--plot-score",
+        type=str,
+        choices=PLOT_SCORES,
+        default="category",
+        help="Green curve in figures: category (fine-grained class alignment) or abnormal (coarse Branch 2).",
+    )
+    parser.add_argument(
+        "--max-anomaly-ratio",
+        type=float,
+        default=0.8,
+        help="Skip videos whose anomaly frame ratio exceeds this threshold before ranking.",
+    )
     parser.add_argument("--video-root", type=str, required=True, help="Directory containing original XD-Violence test videos.")
+    parser.add_argument(
+        "--adapter-variant",
+        type=str,
+        default=None,
+        help="Build AdapterAblationCLIPVAD with this variant. Omit for base CLIPVAD.",
+    )
     parser.add_argument("--num-thumbnails", type=int, default=5)
     parser.add_argument("--figure-width", type=int, default=960)
     parser.add_argument("--figure-height", type=int, default=360)
@@ -470,8 +817,15 @@ def main() -> None:
         raise FileNotFoundError(f"No videos with extensions {video_extensions} found under {video_root}")
     print(f"Indexed {len(set(video_index.values()))} videos from {video_root}")
 
-    model = build_xd_model(settings)
-    load_model_weights(model, settings["model_path"], settings["device"], strict=bool(settings["strict_load"]))
+    model_path = resolve_path(settings["model_path"])
+    if args.adapter_variant:
+        model = build_xd_model(settings, AdapterAblationCLIPVAD, variant=args.adapter_variant)
+        print(f"Using AdapterAblationCLIPVAD variant={args.adapter_variant}")
+    else:
+        model = build_xd_model(settings)
+        print("Using base CLIPVAD")
+    print(f"Loading weights from {model_path}")
+    load_model_weights(model, model_path, settings["device"], strict=bool(settings["strict_load"]))
 
     dataloader = build_xd_dataloader(settings)
     prompt_text = xd_prompt_text(settings.get("prompt_template"))
@@ -484,69 +838,123 @@ def main() -> None:
     )
     gtsegments = np.load(resolve_path(settings["gt_segment_path"]), allow_pickle=True)
 
-    indices = parse_indices(args.indices)
-    if indices is None:
-        indices = list(range(min(args.num_cases, len(predictions["branch1_segments"]))))
+    candidate_indices = parse_indices(args.indices)
+    rank_metric = str(args.rank_metric)
+    rank_score = str(args.rank_score)
+    plot_score = str(args.plot_score)
+    max_anomaly_ratio = float(args.max_anomaly_ratio)
+    selected_by_category = select_top_per_category(
+        predictions,
+        gtsegments,
+        int(args.top_k),
+        rank_metric,
+        rank_score,
+        candidate_indices=candidate_indices,
+        max_anomaly_ratio=max_anomaly_ratio,
+    )
+
+    print(
+        f"Top cases per fine-grained category "
+        f"(rank_score={rank_score}, rank_metric={rank_metric}, max_anomaly_ratio={max_anomaly_ratio}; "
+        f"figure green curve={plot_score}):"
+    )
+    for category, ranked in selected_by_category.items():
+        category_name = XD_LABEL_MAP[category]
+        metric_type = ranking_metric_type(category, rank_metric, rank_score)
+        print(f"[{category}/{category_name}] metric={metric_type}")
+        for rank, (index, metric) in enumerate(ranked, start=1):
+            meta = predictions["video_meta"][index]
+            print(
+                f"  {rank}. index={index} metric={metric:.6f} "
+                f"label={meta.get('label', '')} path={meta.get('path', '')}"
+            )
 
     output_dir = resolve_path(args.output_dir)
-    summary = []
-    for index in indices:
-        if index < 0 or index >= len(predictions["branch1_segments"]):
-            print(f"Skipping out-of-range index: {index}")
-            continue
+    clear_output_dir(output_dir)
+    print(f"Cleared output directory: {output_dir}")
+    summary: dict[str, object] = {
+        "model_path": str(model_path),
+        "adapter_variant": args.adapter_variant,
+        "rank_score": rank_score,
+        "rank_metric": rank_metric,
+        "plot_score": plot_score,
+        "max_anomaly_ratio": max_anomaly_ratio,
+        **{category: [] for category in XD_LABEL_MAP},
+    }
+    for category, ranked in selected_by_category.items():
+        category_name = XD_LABEL_MAP[category]
+        metric_type = ranking_metric_type(category, rank_metric, rank_score)
+        category_dir = output_dir / category_output_dir_name(category)
 
-        branch1 = np.repeat(predictions["branch1_segments"][index], 16)
-        branch2 = np.repeat(predictions["branch2_segments"][index], 16)
-        length = min(len(branch1), len(branch2))
-        gt = video_ground_truth(length, gtsegments, index)
-        branch1 = branch1[:length]
-        branch2 = branch2[:length]
+        for index, metric in ranked:
+            if index < 0 or index >= len(predictions["branch1_segments"]):
+                print(f"Skipping out-of-range index: {index}")
+                continue
 
-        meta = predictions["video_meta"][index]
-        name = safe_name(meta.get("path", ""), f"case_{index}")
-        csv_path = output_dir / f"{index:04d}_{name}.csv"
-        png_path = output_dir / f"{index:04d}_{name}.png"
-        video_path = find_video_path(meta.get("path", ""), video_index)
-        if video_path is None:
-            print(f"Skipping case {index}: unable to match feature path to video: {meta.get('path', '')}")
-            continue
+            length = video_length(predictions, index)
+            meta = predictions["video_meta"][index]
+            anomaly_mask = video_anomaly_mask(length, gtsegments, index, meta.get("label", ""))
+            display_mask = display_gt_mask(category, anomaly_mask)
+            category_scores = video_category_scores(predictions, index, length, category)
+            abnormal_scores = video_abnormal_scores(predictions, index, length)
+            plotted_scores = figure_scores(predictions, index, length, category, plot_score)
+            plot_score_label = figure_score_label(category, plot_score)
+            name = safe_name(meta.get("path", ""), f"case_{index}")
+            csv_path = category_dir / f"{index:04d}_{name}.csv"
+            png_path = category_dir / f"{index:04d}_{name}.png"
+            video_path = find_video_path(meta.get("path", ""), video_index)
+            if video_path is None:
+                print(f"Skipping {category} case {index}: unable to match feature path to video: {meta.get('path', '')}")
+                continue
 
-        try:
-            thumbnails = sample_video_thumbnails(
-                video_path,
-                length,
-                int(args.num_thumbnails),
-                parse_clip_time_range(meta.get("path", "")),
+            try:
+                thumbnails = sample_video_thumbnails(
+                    video_path,
+                    length,
+                    int(args.num_thumbnails),
+                    parse_clip_time_range(meta.get("path", "")),
+                )
+            except RuntimeError as error:
+                print(f"Skipping {category} case {index}: {error}")
+                continue
+
+            write_figure_trace_csv(csv_path, category_scores, abnormal_scores, anomaly_mask)
+            write_category_png(
+                png_path,
+                plot_score_label,
+                plotted_scores,
+                display_mask,
+                thumbnails,
+                int(args.figure_width),
+                int(args.figure_height),
             )
-        except RuntimeError as error:
-            print(f"Skipping case {index}: {error}")
-            continue
-
-        write_trace_csv(csv_path, branch1, branch2, gt)
-        write_coarse_png(
-            png_path,
-            f"XD case {index} | label={meta.get('label', '')} | {Path(str(meta.get('path', ''))).stem}",
-            branch1,
-            branch2,
-            gt,
-            thumbnails,
-            int(args.figure_width),
-            int(args.figure_height),
-        )
-        summary.append(
-            {
-                "index": index,
-                "label": meta.get("label", ""),
-                "source": meta.get("path", ""),
-                "video": str(video_path),
-                "csv": str(csv_path.relative_to(resolve_path("."))),
-                "png": str(png_path.relative_to(resolve_path("."))),
-            }
-        )
+            summary[category].append(
+                {
+                    "index": index,
+                    "category": category,
+                    "category_name": category_name,
+                    "score_type": plot_score_type(plot_score),
+                    "plot_score": plot_score,
+                    "rank_score": rank_score,
+                    "rank_metric": rank_metric,
+                    "metric": metric,
+                    "metric_type": metric_type,
+                    "label": meta.get("label", ""),
+                    "source": meta.get("path", ""),
+                    "video": str(video_path),
+                    "csv": str(csv_path.relative_to(resolve_path("."))),
+                    "png": str(png_path.relative_to(resolve_path("."))),
+                }
+            )
 
     write_json(output_dir / "visualization_summary.json", summary)
-    for item in summary:
-        print(f"case={item['index']} csv={item['csv']} png={item['png']}")
+    for category in XD_LABEL_MAP:
+        items = summary[category]
+        for item in items:
+            print(
+                f"category={item['category']} case={item['index']} metric={item['metric']:.6f} "
+                f"csv={item['csv']} png={item['png']}"
+            )
 
 
 if __name__ == "__main__":
