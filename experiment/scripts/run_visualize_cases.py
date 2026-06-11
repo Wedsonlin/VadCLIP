@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import re
 import shutil
 from pathlib import Path
@@ -122,51 +121,6 @@ def video_ground_truth(length: int, gtsegments: np.ndarray, index: int) -> np.nd
         if end > start:
             gt[start:end] = 1.0
     return gt
-
-
-def write_trace_csv(
-    path: Path,
-    branch1: np.ndarray,
-    branch2: np.ndarray,
-    gt: np.ndarray,
-) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["frame", "branch1_score", "branch2_score", "ground_truth"])
-        writer.writeheader()
-        for frame in range(len(gt)):
-            writer.writerow(
-                {
-                    "frame": frame,
-                    "branch1_score": float(branch1[frame]),
-                    "branch2_score": float(branch2[frame]),
-                    "ground_truth": int(gt[frame]),
-                }
-            )
-
-
-def write_figure_trace_csv(
-    path: Path,
-    category_scores: np.ndarray,
-    abnormal_scores: np.ndarray,
-    gt: np.ndarray,
-) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(
-            handle,
-            fieldnames=["frame", "category_score", "abnormal_score", "ground_truth"],
-        )
-        writer.writeheader()
-        for frame in range(len(gt)):
-            writer.writerow(
-                {
-                    "frame": frame,
-                    "category_score": float(category_scores[frame]),
-                    "abnormal_score": float(abnormal_scores[frame]),
-                    "ground_truth": int(gt[frame]),
-                }
-            )
 
 
 def category_score_label(category: str) -> str:
@@ -895,12 +849,9 @@ def main() -> None:
             meta = predictions["video_meta"][index]
             anomaly_mask = video_anomaly_mask(length, gtsegments, index, meta.get("label", ""))
             display_mask = display_gt_mask(category, anomaly_mask)
-            category_scores = video_category_scores(predictions, index, length, category)
-            abnormal_scores = video_abnormal_scores(predictions, index, length)
             plotted_scores = figure_scores(predictions, index, length, category, plot_score)
             plot_score_label = figure_score_label(category, plot_score)
             name = safe_name(meta.get("path", ""), f"case_{index}")
-            csv_path = category_dir / f"{index:04d}_{name}.csv"
             png_path = category_dir / f"{index:04d}_{name}.png"
             video_path = find_video_path(meta.get("path", ""), video_index)
             if video_path is None:
@@ -918,7 +869,6 @@ def main() -> None:
                 print(f"Skipping {category} case {index}: {error}")
                 continue
 
-            write_figure_trace_csv(csv_path, category_scores, abnormal_scores, anomaly_mask)
             write_category_png(
                 png_path,
                 plot_score_label,
@@ -942,7 +892,6 @@ def main() -> None:
                     "label": meta.get("label", ""),
                     "source": meta.get("path", ""),
                     "video": str(video_path),
-                    "csv": str(csv_path.relative_to(resolve_path("."))),
                     "png": str(png_path.relative_to(resolve_path("."))),
                 }
             )
@@ -953,7 +902,7 @@ def main() -> None:
         for item in items:
             print(
                 f"category={item['category']} case={item['index']} metric={item['metric']:.6f} "
-                f"csv={item['csv']} png={item['png']}"
+                f"png={item['png']}"
             )
 
 

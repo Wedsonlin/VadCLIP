@@ -149,7 +149,6 @@ Figure layout and ground truth:
 - PNGs have no long title bar at the top; the score label (e.g. `fighting (B1)`) is drawn **above** the chart, outside the plot area.
 - `A_normal/` figures use a white chart background with **no pink GT overlay** (for pure normal clips, dataset intervals mark normal segments, not anomalies).
 - Other categories highlight annotated anomaly intervals in pink.
-- `.csv` `ground_truth` is always an **anomaly mask** (`1` = anomalous frame); pure normal videos are all `0`.
 
 Baseline checkpoint:
 
@@ -226,9 +225,8 @@ experiment/results/figures/
   visualization_summary.json
 ```
 
-- `.csv`: `frame`, `category_score`, `abnormal_score`, `ground_truth` (anomaly mask; both score traces exported; PNG follows `--plot-score`).
 - `.png`: sampled video thumbnails plus one green score curve (`--plot-score`); anomaly GT overlay on non-`A` categories only.
-- `visualization_summary.json`: top-level `model_path`, `adapter_variant` (null for base `CLIPVAD`), `rank_score`, `rank_metric`, `plot_score`, and `max_anomaly_ratio`; per-category lists with `score_type`, `plot_score`, `rank_score`, `rank_metric`, `metric`, `metric_type`, source feature path, and output file paths.
+- `visualization_summary.json`: top-level `model_path`, `adapter_variant` (null for base `CLIPVAD`), `rank_score`, `rank_metric`, `plot_score`, and `max_anomaly_ratio`; per-category lists with `score_type`, `plot_score`, `rank_score`, `rank_metric`, `metric`, `metric_type`, source feature path, and PNG path.
 
 ## Notes
 
